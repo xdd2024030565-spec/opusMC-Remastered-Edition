@@ -5,7 +5,7 @@
 ## 这是什么
 
 - 原项目：B 站 UP「土豆味小哲」用 Claude Opus 开发的网页版 MC（2026-11 从 B 站下架）。
-- 本项目基于玩家搬运的开源镜像 `cswfwm/opusmc-web` 的游戏本体（`js/` + `mods/`），仅改造存档层，游戏玩法、材质、模组、手感与原网页版一致。
+- 本项目使用原作者开源镜像 `OpusMCLLL/OpusMC-OpenSource` 的游戏本体（轻量版，首页仅 5KB，手机秒开），仅改造存档层，游戏玩法、材质、手感与原网页版一致。
 - 原项目说明见 [ORIGINAL_README.md](ORIGINAL_README.md)。
 
 ## 云端存档（核心）
@@ -39,10 +39,6 @@ token 只存在当前浏览器 `localStorage` 的 `opusmc_remastered_token` 键�
 
 > 注意：需要通过 http(s) 打开（`file://` 下浏览器会拒绝跨域存档 API）。
 
-## 已包含的模组
-
-`mods/` 内含：匠魂 Tinkers' Construct、农夫乐事 Farmer's Delight、veinminer、nightvision、dynlights 及演示数据，与原玩家整合包一致。
-
 ## 操作
 
 与网页版 MC 一致：WASD 移动、空格跳跃、鼠标左键破坏 / 右键放置、E 背包、Esc 菜单。手机端用屏幕触控（游戏内自带虚拟按键）。
@@ -50,7 +46,7 @@ token 只存在当前浏览器 `localStorage` 的 `opusmc_remastered_token` 键�
 ## 致谢
 
 - 原作者：土豆味小哲（B 站），基于 Claude Opus 开发。
-- 游戏本体镜像：[cswfwm/opusmc-web](https://github.com/cswfwm/opusmc-web)、[OpusMCLLL/OpusMC-OpenSource](https://github.com/OpusMCLLL/OpusMC-OpenSource)、[X1aoZhe/OpusMC](https://github.com/X1aoZhe/OpusMC)。
+- 游戏本体镜像：[OpusMCLLL/OpusMC-OpenSource](https://github.com/OpusMCLLL/OpusMC-OpenSource)、[cswfwm/opusmc-web](https://github.com/cswfwm/opusmc-web)、[X1aoZhe/OpusMC](https://github.com/X1aoZhe/OpusMC)。
 - 本项目为个人学习 / 备份用途，未用于任何商业行为。
 
 ## 隐私提示
