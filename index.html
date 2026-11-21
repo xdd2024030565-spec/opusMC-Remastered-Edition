@@ -12,7 +12,8 @@ canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block;image
 #boot{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#ef323d;color:white;font:16px sans-serif}
 #boot b{font-size:30px;margin-bottom:18px}
 #bootbar{width:280px;height:10px;border:2px solid white;padding:2px;margin:12px}
-#bootbar i{display:block;height:100%;width:0;background:white}
+#bootbar i{display:block;height:100%;width:0;background:white;animation:bootscan 1.1s ease-in-out infinite}
+@keyframes bootscan{0%{margin-left:0;width:0}50%{margin-left:55%;width:45%}100%{margin-left:100%;width:0}}
 #err{position:absolute;left:10%;top:30%;width:80%;display:none;color:white;white-space:pre-wrap;font:18px sans-serif;z-index:20}
 </style>
 </head>
