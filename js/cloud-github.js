@@ -41,6 +41,20 @@
     for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
     return out;
   }
+  // GitHub 的 API 通道会把非 ASCII 二进制按 UTF-16 文本转码而损坏存档，
+  // 因此压缩后的字节先转纯 ASCII 的 hex 文本再 base64；读取时反向。
+  const HEX = '0123456789abcdef';
+  function toHex(u8) {
+    let s = '';
+    for (let i = 0; i < u8.length; i++) { const b = u8[i]; s += HEX[b >> 4] + HEX[b & 15]; }
+    return s;
+  }
+  function fromHex(s) {
+    s = String(s || '').replace(/\s/g, '');
+    const out = new Uint8Array(s.length >> 1);
+    for (let i = 0; i < out.length; i++) out[i] = parseInt(s.substr(i * 2, 2), 16);
+    return out;
+  }
   async function deflate(str) {
     if (typeof CompressionStream === 'undefined') return enc(str);
     const cs = new CompressionStream('deflate');
@@ -135,12 +149,14 @@
       if (!rr.ok) throw new Error('读取大存档失败 HTTP ' + rr.status);
       b64str = b64(new Uint8Array(await rr.arrayBuffer()));
     }
-    const raw = await inflate(unb64(b64str));
+    const ascii = dec(unb64(b64str));   // base64 → ASCII hex 文本
+    const raw = await inflate(fromHex(ascii)); // hex → 压缩字节 → 解压
     return JSON.parse(raw);
   }
 
   async function pushOnce(env) {
-    const content = b64(await deflate(JSON.stringify(env)));
+    // 压缩字节 → hex 纯 ASCII 文本 → base64，避免 API 通道的 UTF-16 转码损坏二进制
+    const content = b64(enc(toHex(await deflate(JSON.stringify(env)))));
     const body = { message: 'autosave ' + env.updatedAt, content, branch: BRANCH };
     if (sha) body.sha = sha;
     for (let i = 0; i < 4; i++) {
