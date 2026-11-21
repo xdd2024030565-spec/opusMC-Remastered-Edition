@@ -162,9 +162,13 @@ class ServerListScreen extends MenuScreen {
     this.selected = -1;
     this.pinging = false;
     this.page = 0;
-    this.userName = (typeof Account !== 'undefined' && Account.loggedIn && Account.name) || game.settings.netName || ('Player' + Math.floor(Math.random() * 9000 + 1000));
     this.status = '';
+    // the chosen offline account is loaded from the cloud; it is not kept in
+    // game.settings any more (the user wanted a dedicated cloud file).
+    this.accounts = null;      // { list:[{name}], current: <name> } once loaded
+    this.accountName = null;   // the current name, cached for drawExtra
     this.load();
+    this.loadAccounts();
   }
   load() {
     this.entries = Multiplayer.list().map(e => ({
@@ -173,19 +177,51 @@ class ServerListScreen extends MenuScreen {
     if (this.selected >= this.entries.length) this.selected = this.entries.length - 1;
     if (this.selected < 0 && this.entries.length) this.selected = 0;
   }
-  // the row height and how many fit: vanilla's list is a scrolling box between the title and the buttons
+  // pull the offline accounts file from the cloud (saves/accounts.json via the Worker).
+  // failures fall back to a single ephemeral name so the screen still works.
+  async loadAccounts() {
+    let acc = null;
+    try {
+      if (window.CloudGitHub && window.CloudGitHub.kvLoad) {
+        acc = await window.CloudGitHub.kvLoad('accounts');
+      }
+    } catch (e) { /* password wrong etc: treated as no cloud accounts */ }
+    if (acc && Array.isArray(acc.list) && acc.list.length) {
+      this.accounts = acc;
+      const cur = acc.list.find(a => a.name === acc.current);
+      this.accountName = cur ? cur.name : acc.list[0].name;
+    } else {
+      this.accounts = { list: [], current: null };
+      this.accountName = null;
+    }
+    if (this.game.ui.screen === this) this.layout();
+  }
+  // the name used when joining a server: the current account, or a fallback
+  currentName() {
+    if (this.accountName) return this.accountName;
+    if (this.accounts && this.accounts.list && this.accounts.list.length)
+      return this.accounts.list[0].name;
+    return 'Player' + Math.floor(Math.random() * 9000 + 1000);
+  }
+  // a compact, vanilla-style centered panel (not edge to edge): the list is narrower
+  // and vertically centered, with room for the account line at the top.
   metrics() {
     const u = this.game.ui;
-    const rowH = 36,
-      listTop = 32,
-      listBottom = Math.max(listTop + rowH, u.h - 84); // 三行按钮在下方，留 6px 间距
+    const rowH = 30;                       // vanilla's rows are a bit shorter than this build's
+    const maxRows = 8;                     // keep the panel small: scroll when more
+    const top = 54;                        // below the account line (drawn at y~30)
+    const bottomPad = 96;                  // three button rows + status at the bottom
+    const avail = u.h - top - bottomPad;
+    const rows = Math.max(1, Math.min(maxRows, Math.floor(avail / rowH)));
+    const listH = rows * rowH;
+    const listBottom = top + listH;
     return {
-      listTop,
+      listTop: top,
       listBottom,
       rowH,
-      rows: Math.max(1, Math.floor((listBottom - listTop) / rowH)),
+      rows,
       cx: u.w / 2,
-      boxW: Math.min(400, u.w - 20)
+      boxW: Math.min(360, u.w - 24)        // narrower than before; centered
     };
   }
   layout() {
@@ -195,13 +231,14 @@ class ServerListScreen extends MenuScreen {
       n = m.rows;
     const pages = Math.max(1, Math.ceil(this.entries.length / n));
     this.page = clamp(this.page, 0, pages - 1);
+    this.pages = pages;
     const bw = (m.boxW - 8) / 2,
-      by = m.listBottom + 6; // 按钮紧贴列表下方
+      by = m.listBottom + 8;
     this.widgets = [{
       x: cx - m.boxW / 2,
       y: by,
       w: bw,
-      h: 20,
+      h: 18,
       label: '加入服务器',
       enabled: this.selected >= 0 && this.selected < this.entries.length,
       onClick: () => this.joinSelected()
@@ -209,17 +246,17 @@ class ServerListScreen extends MenuScreen {
       x: cx - m.boxW / 2 + bw + 8,
       y: by,
       w: bw,
-      h: 20,
+      h: 18,
       label: '直接连接',
       onClick: () => {
         this.game.ui.hideInput();
-        this.game.ui.open(new DirectConnectScreen(this.game, this, this.userName));
+        this.game.ui.open(new DirectConnectScreen(this.game, this));
       }
     }, {
       x: cx - m.boxW / 2,
-      y: by + 24,
+      y: by + 22,
       w: bw,
-      h: 20,
+      h: 18,
       label: '添加服务器',
       onClick: () => {
         this.game.ui.hideInput();
@@ -227,9 +264,9 @@ class ServerListScreen extends MenuScreen {
       }
     }, {
       x: cx - m.boxW / 2 + bw + 8,
-      y: by + 24,
+      y: by + 22,
       w: bw,
-      h: 20,
+      h: 18,
       label: '编辑',
       enabled: this.selected >= 0 && this.selected < this.entries.length,
       onClick: () => {
@@ -238,76 +275,75 @@ class ServerListScreen extends MenuScreen {
       }
     }, {
       x: cx - m.boxW / 2,
-      y: by + 48,
+      y: by + 44,
       w: bw,
-      h: 20,
+      h: 18,
       label: this.pinging ? '正在刷新…' : '刷新',
       enabled: !this.pinging,
       onClick: () => this.refresh()
     }, {
       x: cx - m.boxW / 2 + bw + 8,
-      y: by + 48,
+      y: by + 44,
       w: bw,
-      h: 20,
+      h: 18,
       label: '返回',
       onClick: () => this.back()
     }];
-    // a name row above the list, like vanilla's (this build has no account service any more: the
-    // name is local, and a server that allows offline play accepts it as it is)
-    this.nameBox = {
-      x: cx - m.boxW / 2,
-      y: 16,
-      w: m.boxW,
-      h: 20
+    // the account button at the top-right, and the current-account label at top-left,
+    // drawn (not widgets) so they sit above the title cleanly.
+    this.acctBtn = {
+      x: cx + m.boxW / 2 - 96,
+      y: 28,
+      w: 96,
+      h: 18
     };
-    // paging: arrows at the right of the list, when there is more than a page
+    this.acctLabel = {
+      x: cx - m.boxW / 2,
+      y: 28,
+      w: m.boxW - 104,
+      h: 18
+    };
+    // paging arrows on the right edge of the list when there is more than one page
     if (pages > 1) {
       this.widgets.push({
-        x: cx + m.boxW / 2 - 24,
+        x: cx + m.boxW / 2 - 22,
         y: m.listTop - 1,
-        w: 22,
+        w: 20,
         h: 11,
         label: '▲',
         enabled: this.page > 0,
-        onClick: () => {
-          this.page--;
-          this.layout();
-        }
+        onClick: () => { this.page--; this.layout(); }
       }, {
-        x: cx + m.boxW / 2 - 24,
+        x: cx + m.boxW / 2 - 22,
         y: m.listBottom - 12,
-        w: 22,
+        w: 20,
         h: 11,
         label: '▼',
         enabled: this.page < pages - 1,
-        onClick: () => {
-          this.page++;
-          this.layout();
-        }
+        onClick: () => { this.page++; this.layout(); }
       });
     }
-    this.pages = pages;
   }
   // a click on the list picks a row (and a double click joins, like vanilla)
   mouseDown(ui, mx, my, b) {
-    const m = this.metrics();
-    // click on the name box: open the on-screen keyboard for the player name
-    if (b === 0 && this.nameBox && mx >= this.nameBox.x && mx < this.nameBox.x + this.nameBox.w && my >= this.nameBox.y && my < this.nameBox.y + this.nameBox.h) {
-      this.focusName();
-      return;
-    }
-    if (b === 0 && mx >= m.cx - m.boxW / 2 && mx <= m.cx + m.boxW / 2 && my >= m.listTop && my < m.listBottom) {
-      const i = this.page * m.rows + Math.floor((my - m.listTop) / m.rowH);
-      if (i >= 0 && i < this.entries.length) {
-        const was = this.selected;
-        this.selected = i;
-        this.layout();
-        if (was === i) {
-          this.joinSelected();
+    if (b === 0) {
+      // the account button opens the offline-accounts screen
+      if (this.acctBtn && mx >= this.acctBtn.x && mx < this.acctBtn.x + this.acctBtn.w && my >= this.acctBtn.y && my < this.acctBtn.y + this.acctBtn.h) {
+        this.game.ui.hideInput();
+        this.game.ui.open(new OfflineAccountsScreen(this.game, this));
+        return;
+      }
+      const m = this.metrics();
+      if (mx >= m.cx - m.boxW / 2 && mx <= m.cx + m.boxW / 2 && my >= m.listTop && my < m.listBottom) {
+        const i = this.page * m.rows + Math.floor((my - m.listTop) / m.rowH);
+        if (i >= 0 && i < this.entries.length) {
+          const was = this.selected;
+          this.selected = i;
+          this.layout();
+          if (was === i) { this.joinSelected(); return; }
+          Sound.click();
           return;
         }
-        Sound.click();
-        return;
       }
     }
     super.mouseDown(ui, mx, my, b);
@@ -316,35 +352,8 @@ class ServerListScreen extends MenuScreen {
     this.game.ui.hideInput();
     this.game.ui.open(this.parent || new TitleScreen(this.game));
   }
-  // open the on-screen keyboard for the player name box
-  focusName() {
-    const u = this.game.ui,
-      b = this.nameBox;
-    u.showInput(b.x + 4, b.y + 6, b.w - 8, 10, this.userName, () => {
-      // on enter: commit the name (already kept in sync via onInput)
-    }, {
-      onInput: v => {
-        this.userName = String(v || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 16);
-      },
-      onEsc: () => this.onEsc(),
-      max: 16
-    });
-  }
   onEsc() {
     this.back();
-  }
-  // the offline user name, as typed in the box above the list
-  okName() {
-    const n = String(this.userName || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 16);
-    if (!n) {
-      this.status = '先输入玩家名（英文字母、数字、下划线）';
-      this.statusBad = true;
-      return null;
-    }
-    this.userName = n;
-    this.game.settings.netName = n;
-    this.game.saveSettings();
-    return n;
   }
   async refresh() {
     if (this.pinging || !this.entries.length) return;
@@ -352,7 +361,6 @@ class ServerListScreen extends MenuScreen {
     this.status = '';
     this.layout();
     const proxy = Multiplayer.defaultProxy();
-    // a few at a time: a phone's little connection pool, and the bridge may be on a slow link
     const queue = this.entries.map((e, i) => [e, i]);
     const CONC = 4;
     const run = async () => {
@@ -371,13 +379,9 @@ class ServerListScreen extends MenuScreen {
         if (this.game.ui.screen === this) this.layout();
       }
     };
-    await Promise.all(Array.from({
-      length: Math.min(CONC, this.entries.length)
-    }, run));
+    await Promise.all(Array.from({ length: Math.min(CONC, this.entries.length) }, run));
     this.pinging = false;
     const ok = this.entries.filter(e => e.ping).length;
-    // When every server is unreachable on the same-host default bridge, point at the docs:
-    // a missing bridge server is by far the most common cause. No layout change — reuse status.
     const defaultBridge = !new URLSearchParams(location.search).get('proxy') && !window.MP_PROXY &&
       /:8780$/.test(proxy);
     this.status = ok ? `在线 ${ok} / ${this.entries.length}` :
@@ -387,7 +391,6 @@ class ServerListScreen extends MenuScreen {
     if (this.game.ui.screen === this) this.layout();
   }
   savePings() {
-    // the pings are kept with the list so the next visit shows them while it refreshes
     const cur = Multiplayer.list();
     const byIp = new Map(cur.map(e => [e.ip + ':' + (e.port || 25565), e]));
     for (const e of this.entries) {
@@ -406,14 +409,12 @@ class ServerListScreen extends MenuScreen {
   joinSelected() {
     const e = this.entries[this.selected];
     if (!e) return;
-    const n = this.okName();
-    if (!n) return;
+    const n = this.currentName();
     const g = this.game;
     g.ui.hideInput();
     e.lastPlayed = Date.now();
     Multiplayer.save(this.entries);
     g.ui.open(new LoadingScreen(g, '正在连接 ' + Multiplayer.addr(e) + '…'));
-    // (NetClient takes over from here; a failure comes back through Game.prototype.leaveServer)
     g.joinServer(Multiplayer.ws(e), n);
   }
   drawExtra(ui) {
@@ -421,11 +422,11 @@ class ServerListScreen extends MenuScreen {
       m = this.metrics(),
       cx = m.cx,
       list = this.entries.slice(this.page * m.rows, this.page * m.rows + m.rows);
-    // the name box
-    const b = this.nameBox;
-    Font.draw(c, '玩家名', b.x, b.y - 10, '#A0A0A0');
-    ui.nine('text_field', b.x, b.y, b.w, b.h, 1);
-    Font.draw(c, fitText(this.userName || '', b.w - 8), b.x + 4, b.y + 6, '#E0E0E0');
+    // the current-account line at the top-left, and the button at the top-right
+    const an = this.accountName || '（未选择）';
+    Font.draw(c, '当前账号', this.acctLabel.x, this.acctLabel.y - 9, '#808080');
+    ui.nine('text_field', this.acctLabel.x, this.acctLabel.y, this.acctLabel.w, this.acctLabel.h, 1);
+    Font.draw(c, fitText(an + ' ▼', this.acctLabel.w - 8), this.acctLabel.x + 4, this.acctLabel.y + 5, '#E0E0E0');
     // the list box
     const x0 = cx - m.boxW / 2,
       y0 = m.listTop,
@@ -449,24 +450,21 @@ class ServerListScreen extends MenuScreen {
       }
       const tx = x0 + 8,
         tw = m.boxW - 16 - 24;
-      // name, then the second line: players · version · motd (vanilla's two lines)
-      Font.draw(c, fitText(e.name || e.ip, tw), tx, y + 5, sel ? '#FFFFFF' : '#E0E0E0');
+      Font.draw(c, fitText(e.name || e.ip, tw), tx, y + 4, sel ? '#FFFFFF' : '#E0E0E0');
       const line2 = [];
       if (e.online != null) line2.push(`${e.online}/${e.max ?? '?'}`);
       if (e.version) line2.push(fitText(String(e.version).split(' ')[0], 70));
       if (e.motd) line2.push(fitText(String(e.motd).replace(/\s+/g, ' '), tw - 60));
       const txt2 = line2.join(' · ');
-      Font.draw(c, fitText(txt2 || Multiplayer.addr(e), tw), tx, y + 18, e.online != null ? '#7FCF7F' : '#909090');
-      // the signal bars, at the right: 0-5 lit for the ping, crossed out when unreachable
-      this.drawBars(c, x0 + m.boxW - 20, y + 10, e.ping);
+      Font.draw(c, fitText(txt2 || Multiplayer.addr(e), tw), tx, y + 16, e.online != null ? '#7FCF7F' : '#909090');
+      this.drawBars(c, x0 + m.boxW - 20, y + 9, e.ping);
     });
-    // the address of the selected one, under the list, in the small vanilla way
+    // the address of the selected one, under the list
     const sel = this.entries[this.selected];
     if (sel) Font.center(c, Multiplayer.addr(sel) + (sel.proxy ? '  ·  中转 ' + sel.proxy : ''), cx, m.listBottom + 4, '#909090');
-    if (this.status) Font.center(c, fitText(this.status, ui.w - 8), cx, ui.h - 62, this.statusBad ? '#FF6060' : '#7FCF7F');
-    if (this.pages > 1) Font.draw(c, `${this.page + 1}/${this.pages}`, cx + m.boxW / 2 - 22, m.listTop + 2, '#A0A0A0');
+    if (this.status) Font.center(c, fitText(this.status, ui.w - 8), cx, ui.h - 58, this.statusBad ? '#FF6060' : '#7FCF7F');
+    if (this.pages > 1) Font.draw(c, `${this.page + 1}/${this.pages}`, cx + m.boxW / 2 - 20, m.listTop + 2, '#A0A0A0');
   }
-  // vanilla's five-bar signal icon. null ping: grey bars with a cross; 0: red
   drawBars(c, x, y, ping) {
     const bw = 2,
       gap = 1,
@@ -493,6 +491,184 @@ class ServerListScreen extends MenuScreen {
   }
 }
 
+// ---- offline accounts (a dedicated cloud file saves/accounts.json) ------------------------
+//
+// The list and the currently-selected one live in one cloud file:
+//   { list:[{name:"Steve"},...], current:"Steve" }
+// No localStorage; no per-account files. The user picks one before joining.
+
+class OfflineAccountsScreen extends MenuScreen {
+  constructor(game, parent) {
+    super(game, '离线账号');
+    this.parent = parent;                 // the ServerListScreen (so we can push the choice back)
+    this.titleY = 20;
+    this.list = (parent && parent.accounts && parent.accounts.list) ? parent.accounts.list.slice() : [];
+    this.current = (parent && parent.accounts) ? parent.accounts.current : null;
+    this.editing = -1;                     // index being added/edited, -1 = none
+    this.editName = '';
+    this.editField = null;
+    this.busy = false;                     // saving to the cloud
+    this.note = '';
+    this.noteBad = false;
+    this.mode = 'list';                    // 'list' | 'edit'
+  }
+  layout() {
+    const u = this.game.ui,
+      cx = u.w / 2,
+      w = Math.min(280, u.w - 24);
+    if (this.mode === 'edit') {
+      this.boxes = { name: { x: cx - w / 2, y: 70, w, h: 20 } };
+      this.widgets = [{
+        x: cx - w / 2, y: 110, w: (w - 8) / 2, h: 20, label: '保存', onClick: () => this.saveEdit()
+      }, {
+        x: cx + 4, y: 110, w: (w - 8) / 2, h: 20, label: '取消', onClick: () => this.cancelEdit()
+      }];
+      if (this.editing >= 0 && this.editing < this.list.length) {
+        this.widgets.push({
+          x: cx - w / 2, y: u.h - 32, w, h: 20, label: '删除', tint: 'rgba(140,30,30,0.55)',
+          onClick: () => this.removeEdit()
+        });
+      }
+      this.focusEdit();
+      return;
+    }
+    // list mode: each account is a row; a row shows ● current / name / [编辑]
+    const rowH = 24,
+      top = 48,
+      maxRows = 7,
+      rows = Math.max(1, Math.min(maxRows, this.list.length));
+    this.widgets = [];
+    this.list.forEach((a, i) => {
+      const y = top + i * rowH;
+      this.widgets.push({
+        x: cx - w / 2, y, w: w - 70, h: 20,
+        label: () => (a.name === this.current ? '● ' : '  ') + fitText(a.name, w - 90),
+        gold: a.name === this.current,
+        onClick: () => this.select(i)
+      }, {
+        x: cx + w / 2 - 62, y, w: 62, h: 20,
+        label: '编辑', onClick: () => this.beginEdit(i)
+      });
+    });
+    const by = top + rows * rowH + 8;
+    this.widgets.push({
+      x: cx - w / 2, y: by, w: (w - 8) / 2, h: 20,
+      label: this.busy ? '正在同步…' : '添加离线账号',
+      enabled: !this.busy,
+      onClick: () => this.beginEdit(-1)
+    }, {
+      x: cx + 4, y: by, w: (w - 8) / 2, h: 20,
+      label: '关闭', onClick: () => this.onEsc()
+    });
+  }
+  focusEdit() {
+    const u = this.game.ui, b = this.boxes.name;
+    this.editField = 'name';
+    u.showInput(b.x + 4, b.y + 6, b.w - 8, 10, this.editName, () => this.saveEdit(), {
+      onInput: v => { this.editName = String(v || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 16); },
+      onEsc: () => this.cancelEdit(),
+      max: 16
+    });
+  }
+  beginEdit(i) {
+    this.editing = i;
+    this.editName = i >= 0 ? this.list[i].name : '';
+    this.mode = 'edit';
+    this.note = '';
+    this.game.ui.hideInput();
+    this.layout();
+  }
+  cancelEdit() {
+    this.mode = 'list';
+    this.editing = -1;
+    this.game.ui.hideInput();
+    this.layout();
+  }
+  mouseDown(ui, mx, my, b) {
+    if (this.mode === 'edit') {
+      const r = this.boxes.name;
+      if (mx >= r.x && mx < r.x + r.w && my >= r.y && my < r.y + r.h) { this.focusEdit(); return; }
+    }
+    super.mouseDown(ui, mx, my, b);
+  }
+  // commit an add/edit; saves the whole file to the cloud
+  async saveEdit() {
+    const n = String(this.editName || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 16);
+    if (!n) { this.note = '名字不能为空（字母、数字、下划线，≤16）'; this.noteBad = true; this.layout(); return; }
+    if (this.editing >= 0) {
+      this.list[this.editing] = { name: n };
+      if (this.current === this.list[this.editing] && this.list[this.editing]) this.current = n;
+    } else {
+      this.list.push({ name: n });
+    }
+    // selecting the one just added/edited, like vanilla
+    this.current = n;
+    this.mode = 'list';
+    this.game.ui.hideInput();
+    await this.sync();
+  }
+  removeEdit() {
+    const i = this.editing;
+    if (i < 0 || i >= this.list.length) return;
+    const name = this.list[i].name;
+    const g = this.game;
+    g.ui.open(new AskScreen(g, '删除离线账号', [`「${name}」会从云端账号列表删除。`], '删除', true, async () => {
+      this.list.splice(i, 1);
+      if (this.current === name) this.current = this.list.length ? this.list[0].name : null;
+      this.mode = 'list';
+      this.editing = -1;
+      g.ui.hideInput();
+      await this.sync();
+    }, () => { this.mode = 'list'; this.editing = -1; g.ui.hideInput(); this.layout(); }));
+  }
+  select(i) {
+    if (i < 0 || i >= this.list.length) return;
+    this.current = this.list[i].name;
+    this.sync();
+  }
+  // write { list, current } to the cloud and push back to the parent
+  async sync() {
+    this.busy = true;
+    this.note = '正在同步到云端…';
+    this.noteBad = false;
+    this.layout();
+    try {
+      if (window.CloudGitHub && window.CloudGitHub.kvSave) {
+        await window.CloudGitHub.kvSave('accounts', { list: this.list, current: this.current }, 'update offline accounts');
+      }
+      this.note = '已保存';
+      this.noteBad = false;
+    } catch (e) {
+      this.note = '云端保存失败：' + (e && e.message || e);
+      this.noteBad = true;
+    }
+    this.busy = false;
+    // push back so the parent's top-left label updates immediately
+    if (this.parent) {
+      this.parent.accounts = { list: this.list.slice(), current: this.current };
+      this.parent.accountName = this.current;
+    }
+    this.layout();
+  }
+  onEsc() {
+    this.game.ui.hideInput();
+    this.game.ui.open(this.parent || new TitleScreen(this.game));
+  }
+  drawExtra(ui) {
+    const c = ui.ctx;
+    if (this.mode === 'edit') {
+      const r = this.boxes.name;
+      Font.draw(c, '离线账号名字', r.x, r.y - 11, '#A0A0A0');
+      ui.nine(this.editField === 'name' ? 'text_field_hl' : 'text_field', r.x, r.y, r.w, r.h, 1);
+      if (this.editField !== 'name') Font.draw(c, fitText(this.editName, r.w - 8), r.x + 4, r.y + 6, '#E0E0E0');
+      Font.center(c, '只允许英文字母、数字、下划线，最多 16 个', ui.w / 2, 94, '#808080');
+    } else {
+      if (!this.list.length) Font.center(c, '还没有离线账号，点「添加离线账号」', ui.w / 2, 36, '#A0A0A0');
+    }
+    if (this.note) Font.center(c, fitText(this.note, ui.w - 8), ui.w / 2, ui.h - 52, this.noteBad ? '#FF6060' : '#7FCF7F');
+  }
+}
+
 // ---- add / edit one server -----------------------------------------------------------------
 
 class EditServerScreen extends MenuScreen {
@@ -505,7 +681,6 @@ class EditServerScreen extends MenuScreen {
     this.ip = entry ? entry.ip || '' : '';
     this.port = entry ? String(entry.port || 25565) : '25565';
     this.proxyAddr = entry ? entry.proxy || '' : '';
-    this.userName = (typeof Account !== 'undefined' && Account.loggedIn && Account.name) || game.settings.netName || ('Player' + Math.floor(Math.random() * 9000 + 1000));
     this.field = 'ip';
   }
   layout() {
@@ -617,11 +792,7 @@ class EditServerScreen extends MenuScreen {
       };else list.push(rec);
     } else list.push(rec);
     Multiplayer.save(list);
-    const n = String(this.userName || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 16);
-    if (n) {
-      this.game.settings.netName = n;
-      this.game.saveSettings();
-    }
+    // the offline account name comes from the parent now, not from this screen
     this.back();
   }
   // vanilla asks twice ("are you sure you want to remove this server?"), the second one red
@@ -664,12 +835,11 @@ class EditServerScreen extends MenuScreen {
 // ---- 直接连接 (vanilla's Direct Connect) ---------------------------------------------------
 
 class DirectConnectScreen extends MenuScreen {
-  constructor(game, parent, name) {
+  constructor(game, parent) {
     super(game, '直接连接');
     this.parent = parent;
     this.titleY = 20;
     this.addr = game.settings.netAddr || '';
-    this.userName = name || (typeof Account !== 'undefined' && Account.loggedIn && Account.name) || game.settings.netName || ('Player' + Math.floor(Math.random() * 9000 + 1000));
     this.field = 'addr';
   }
   layout() {
@@ -679,20 +849,14 @@ class DirectConnectScreen extends MenuScreen {
     this.boxes = {
       addr: {
         x: cx - w / 2,
-        y: 66,
-        w,
-        h: 20
-      },
-      name: {
-        x: cx - w / 2,
-        y: 110,
+        y: 70,
         w,
         h: 20
       }
     };
     this.widgets = [{
       x: cx - w / 2,
-      y: 148,
+      y: 100,
       w: w,
       h: 20,
       label: '加入服务器',
@@ -716,7 +880,7 @@ class DirectConnectScreen extends MenuScreen {
         this[k] = v;
       },
       onEsc: () => this.onEsc(),
-      max: k === 'name' ? 16 : 200
+      max: 200
     });
   }
   mouseDown(ui, mx, my, b) {
@@ -731,26 +895,22 @@ class DirectConnectScreen extends MenuScreen {
   }
   // The box takes any of: "host", "host:port", "wss://bridge/ws" (a bridge directly), or
   // "host:port@wss://bridge/ws" (a server through a named bridge).
+  // The offline account name is the current one on the parent ServerListScreen.
   join() {
     const g = this.game;
     const raw = String(this.addr || '').trim();
-    const n = String(this.userName || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 16);
     if (!raw) {
       this.focus('addr');
       return;
     }
-    if (!n) {
-      this.focus('name');
-      return;
-    }
+    const n = (this.parent && this.parent.currentName) ? this.parent.currentName() :
+      ('Player' + Math.floor(Math.random() * 9000 + 1000));
     g.settings.netAddr = raw;
-    g.settings.netName = n;
     g.saveSettings();
     g.ui.hideInput();
     let entry = null;
     const m = /^(\S+?)(?::(\d{1,5}))?\s*@\s*(\S+)$/.exec(raw);
     if (/^wss?:\/\//.test(raw)) {
-      // a bridge address as it is: the server is chosen by the bridge (a local, single-server proxy)
       g.joinServer(raw, n);
       return;
     }
@@ -794,9 +954,8 @@ class DirectConnectScreen extends MenuScreen {
       if (this.field !== k) Font.draw(c, fitText(String(this[k] || ''), r.w - 8), r.x + 4, r.y + 6, '#E0E0E0');
     };
     draw('addr', '服务器地址（域名或 IP，可带端口）');
-    draw('name', '玩家名（离线名字，服务器允许离线时直接用）');
-    Font.center(c, '例：mc.hypixel.net　　或　play.example.com:25566', ui.w / 2, 140, '#808080');
-    Font.center(c, '也可以填中转的 ws 地址：wss://你的中转/ws', ui.w / 2, 152, '#808080');
+    Font.center(c, '例：mc.hypixel.net　　或　play.example.com:25566', ui.w / 2, 94, '#808080');
+    Font.center(c, '也可以填中转的 ws 地址：wss://你的中转/ws', ui.w / 2, 106, '#808080');
   }
 }
 

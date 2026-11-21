@@ -403,8 +403,97 @@
     return dirty ? '待保存…' : '云端存档已同步';
   }
 
+  // ---- 通用云端 KV（与主存档并列的独立文件）------------------------------
+  // 用于离线账号列表 / 游戏设置 / 键位等"不是主存档但也要跟设备走"的数据。
+  // 文件名白名单在 Worker 侧维护（saves/<name>.json）：accounts / settings / keybinds。
+  // 每个文件有自己独立的 sha 乐观锁，互不干扰主存档。
+  const kvSha = {};   // name → sha
+  function kvUrl(name) { return WORKER_URL + '?file=' + encodeURIComponent(name) + '&t=' + Date.now(); }
+  function kvPutUrl(name) { return WORKER_URL + '?file=' + encodeURIComponent(name); }
+
+  // 拉取一个 KV 文件，返回 JS 对象；文件不存在（404）返回 null。
+  async function kvLoad(name) {
+    if (!password) throw new Error('未配置密码');
+    let r = null, lastErr = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        r = await fetchWithTimeout(kvUrl(name), { headers: headers(), cache: 'no-store' });
+        if (r.status === 401) throw new Error('BAD_PASSWORD');
+        if (r.ok || r.status === 404) break;
+        lastErr = new Error('拉取 ' + name + ' 失败 HTTP ' + r.status);
+      } catch (e) {
+        if (e.message === 'BAD_PASSWORD') throw e;
+        lastErr = e; r = null;
+      }
+      if (attempt < 2) await new Promise(res => setTimeout(res, 600));
+    }
+    if (!r) throw lastErr || new Error('拉取 ' + name + ' 失败：网络不可用');
+    if (r.status === 404) { kvSha[name] = null; return null; }
+    if (r.status === 401) throw new Error('BAD_PASSWORD');
+    if (!r.ok) throw lastErr || new Error('拉取 ' + name + ' 失败 HTTP ' + r.status);
+    const j = await r.json();
+    kvSha[name] = j.sha;
+    let b64str = j.content;
+    if (!b64str) throw new Error(name + ' content 为空');
+    const ascii = dec(unb64(b64str));
+    const raw = await inflate(fromHex(ascii));
+    return JSON.parse(raw);
+  }
+
+  // 保存一个 KV 文件（对象会被 JSON 序列化 + 压缩 + hex + base64）。
+  // 带 sha 乐观锁，冲突时自动重拉重试 4 次。
+  async function kvSave(name, obj, message) {
+    if (!password) throw new Error('未配置密码');
+    if (readOnly) throw new Error('只读模式：无法保存 ' + name);
+    const content = b64(enc(toHex(await deflate(JSON.stringify(obj)))));
+    const body = { message: message || ('save ' + name), content, branch: 'main' };
+    if (kvSha[name]) body.sha = kvSha[name];
+    for (let i = 0; i < 4; i++) {
+      const r = await fetchWithTimeout(kvPutUrl(name), { method: 'PUT', headers: headers(), body: JSON.stringify(body) });
+      if (r.ok) {
+        const j = await r.json();
+        if (j.content && j.content.sha) kvSha[name] = j.content.sha;
+        else kvSha[name] = (await fetchWithTimeout(kvUrl(name), { headers: headers(), cache: 'no-store' }).then(g => g.json()).catch(() => ({}))).sha || kvSha[name];
+        return;
+      }
+      if (r.status === 409 || r.status === 422) {
+        const g = await fetchWithTimeout(kvUrl(name), { headers: headers(), cache: 'no-store' });
+        if (g.ok) { const gj = await g.json(); kvSha[name] = gj.sha; body.sha = gj.sha; continue; }
+        if (g.status === 404) { kvSha[name] = null; body.sha = undefined; continue; }
+      }
+      if (r.status === 401) throw new Error('BAD_PASSWORD');
+      throw new Error('上传 ' + name + ' 失败 HTTP ' + r.status);
+    }
+    throw new Error('上传 ' + name + ' 冲突重试失败');
+  }
+
+  // 删除一个 KV 文件（用于清空等）。文件不存在视为成功。
+  async function kvDelete(name, message) {
+    if (!password) throw new Error('未配置密码');
+    const r = await fetchWithTimeout(kvPutUrl(name), {
+      method: 'DELETE', headers: headers(),
+      body: JSON.stringify({ message: message || ('delete ' + name), sha: kvSha[name] || undefined, branch: 'main' })
+    });
+    if (r.status === 404 || r.ok) { kvSha[name] = null; return true; }
+    if (r.status === 409 || r.status === 422) {
+      // sha 过期：重拉再删一次
+      const g = await fetchWithTimeout(kvUrl(name), { headers: headers(), cache: 'no-store' });
+      if (g.status === 404) { kvSha[name] = null; return true; }
+      if (g.ok) {
+        kvSha[name] = (await g.json()).sha;
+        const r2 = await fetchWithTimeout(kvPutUrl(name), {
+          method: 'DELETE', headers: headers(),
+          body: JSON.stringify({ message: message || ('delete ' + name), sha: kvSha[name], branch: 'main' })
+        });
+        if (r2.ok || r2.status === 404) { kvSha[name] = null; return true; }
+      }
+    }
+    throw new Error('删除 ' + name + ' 失败 HTTP ' + r.status);
+  }
+
   window.CloudGitHub = {
     load, markDirty, flushNow, setPassword, statusText, promptLogin, deleteRemote,
+    kvLoad, kvSave, kvDelete,
     get loaded() { return loaded; },
     get dirty() { return dirty; }
   };
