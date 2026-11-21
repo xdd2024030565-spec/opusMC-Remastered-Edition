@@ -59,6 +59,8 @@ const Multiplayer = {
   addr(entry) {
     return entry.port && Number(entry.port) !== 25565 ? entry.ip + ':' + entry.port : entry.ip;
   },
+  // the servers list: kept in the cloud (saves/servers.json) with localStorage as a
+  // fast cache so the screen paints instantly before the pull lands.
   list() {
     let raw = null;
     try {
@@ -77,19 +79,35 @@ const Multiplayer = {
       localStorage.setItem(MP_KEY, JSON.stringify(list));
     } catch (e) {}
   },
-  // the servers a fresh install starts with: the tutorial maps that ship with this build, plus a
-  // couple of well-known public ones that are worth trying. They are ordinary entries: editable,
-  // deletable, and only pinged when the list is shown.
+  // a fresh install starts with no servers at all: the user adds the ones they want.
+  // (the well-known public servers were removed at the user's request: they don't work
+  //  through this build's offline bridge and only clutter the list.)
   seedList() {
-    return [{
-      name: 'Hypixel',
-      ip: 'mc.hypixel.net',
-      port: 25565
-    }, {
-      name: 'Minehut',
-      ip: 'play.minehut.com',
-      port: 25565
-    }];
+    return [];
+  },
+  // pull the server list from the cloud (saves/servers.json). Returns the list, or the
+  // cached/seed list on any failure so the screen never blanks.
+  async cloudList() {
+    try {
+      if (window.CloudGitHub && window.CloudGitHub.kvLoad) {
+        const v = await window.CloudGitHub.kvLoad('servers');
+        if (v && Array.isArray(v.list)) {
+          const a = v.list.filter(s => s && typeof s.ip === 'string' && s.ip);
+          this.save(a);            // refresh the local cache
+          return a;
+        }
+      }
+    } catch (e) {}
+    return this.list();
+  },
+  // push the list to the cloud (saves/servers.json). Falls back to local-only on failure.
+  async cloudSave(list) {
+    this.save(list);               // always refresh the local cache first
+    try {
+      if (window.CloudGitHub && window.CloudGitHub.kvSave) {
+        await window.CloudGitHub.kvSave('servers', { list }, 'update server list');
+      }
+    } catch (e) {}
   },
   // ping one server through the bridge: {online, max, version, motd} or null.
   // The bridge answers {t:'ping', online, max, version, motd} for a {t:'ping', host, port} written
@@ -176,6 +194,14 @@ class ServerListScreen extends MenuScreen {
     }));
     if (this.selected >= this.entries.length) this.selected = this.entries.length - 1;
     if (this.selected < 0 && this.entries.length) this.selected = 0;
+    // refresh from the cloud in the background; re-layout when it lands so the
+    // list updates without the user doing anything.
+    Multiplayer.cloudList().then(a => {
+      this.entries = a.map(e => ({ ...e }));
+      if (this.selected >= this.entries.length) this.selected = this.entries.length - 1;
+      if (this.selected < 0 && this.entries.length) this.selected = 0;
+      if (this.game.ui.screen === this) this.layout();
+    });
   }
   // pull the offline accounts file from the cloud (saves/accounts.json via the Worker).
   // failures fall back to a single ephemeral name so the screen still works.
@@ -404,7 +430,7 @@ class ServerListScreen extends MenuScreen {
         t.checked = e.checked;
       }
     }
-    Multiplayer.save(cur);
+    Multiplayer.cloudSave(cur);
   }
   joinSelected() {
     const e = this.entries[this.selected];
@@ -413,7 +439,7 @@ class ServerListScreen extends MenuScreen {
     const g = this.game;
     g.ui.hideInput();
     e.lastPlayed = Date.now();
-    Multiplayer.save(this.entries);
+    Multiplayer.cloudSave(this.entries);
     g.ui.open(new LoadingScreen(g, '正在连接 ' + Multiplayer.addr(e) + '…'));
     g.joinServer(Multiplayer.ws(e), n);
   }
@@ -795,7 +821,7 @@ class EditServerScreen extends MenuScreen {
         ...rec
       };else list.push(rec);
     } else list.push(rec);
-    Multiplayer.save(list);
+    Multiplayer.cloudSave(list);
     // the offline account name comes from the parent now, not from this screen
     this.back();
   }
@@ -806,7 +832,7 @@ class EditServerScreen extends MenuScreen {
       port = this.entry.port || 25565;
     const strip = () => {
       const list = Multiplayer.list().filter(x => !(x.ip === ip && (x.port || 25565) === port));
-      Multiplayer.save(list);
+      Multiplayer.cloudSave(list);
     };
     const second = () => g.ui.open(new AskScreen(g, '真的要删除吗？', [`「${this.entry.name || ip}」会从列表里消失。`, '只有这一条记录；服务器本身不受影响。'], '删除', true, () => {
       strip();
@@ -939,7 +965,7 @@ class DirectConnectScreen extends MenuScreen {
     const list = Multiplayer.list();
     if (!list.some(x => x.ip === entry.ip && (x.port || 25565) === entry.port)) {
       list.push(entry);
-      Multiplayer.save(list);
+      Multiplayer.cloudSave(list);
     }
     this.parent && this.parent.load && this.parent.load();
     this.parent && this.parent.entries && (this.parent.selected = this.parent.entries.findIndex(x => x.ip === entry.ip && (x.port || 25565) === entry.port));
