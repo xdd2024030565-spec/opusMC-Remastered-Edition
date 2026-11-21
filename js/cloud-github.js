@@ -78,7 +78,7 @@
 
   // fetch 超时保护：国内访问 Cloudflare 偶尔会挂起，绝不能让它永久卡住游戏启动。
   // 超时后抛错，由上层"网络异常放行"分支处理，游戏照常进入。
-  const FETCH_TIMEOUT = 10000;
+  const FETCH_TIMEOUT = 25000;
   function fetchWithTimeout(url, opts) {
     opts = opts || {};
     if (typeof AbortController === 'undefined') return fetch(url, opts);
@@ -137,10 +137,24 @@
   }
 
   async function pull() {
-    const r = await fetchWithTimeout(WORKER_URL + '?t=' + Date.now(), { headers: headers(), cache: 'no-store' });
+    // 重试 2 次：偶发超时/5xx 不应让玩家掉进只读模式（那会表现成"云端存档不自动下载"）。
+    let r = null, lastErr = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        r = await fetchWithTimeout(WORKER_URL + '?t=' + Date.now(), { headers: headers(), cache: 'no-store' });
+        if (r.status === 401) throw new Error('BAD_PASSWORD');
+        if (r.ok || r.status === 404) break;
+        lastErr = new Error('拉取存档失败 HTTP ' + r.status + (attempt < 2 ? '（重试中）' : ''));
+      } catch (e) {
+        if (e.message === 'BAD_PASSWORD') throw e;
+        lastErr = e; r = null;
+      }
+      if (attempt < 2) await new Promise(res => setTimeout(res, 600));
+    }
+    if (!r) throw lastErr || new Error('拉取存档失败：网络不可用');
     if (r.status === 404) { sha = null; return null; }
     if (r.status === 401) throw new Error('BAD_PASSWORD');
-    if (!r.ok) throw new Error('拉取存档失败 HTTP ' + r.status);
+    if (!r.ok) throw lastErr || new Error('拉取存档失败 HTTP ' + r.status);
     const j = await r.json();
     sha = j.sha;
     // 大文件的 raw 兜底已由 Worker 完成，返回的 content 一定是 base64 字符串。
@@ -326,7 +340,7 @@
     }
     loaded = true;
     if (typeof window.__bootStop === 'function') window.__bootStop();
-    if (typeof window.__bootProgress === 'function') window.__bootProgress(65, '正在初始化游戏');
+    if (typeof window.__bootProgress === 'function') window.__bootProgress(70, '云端存档已载入');
     installHook();
     periodicTimer = setInterval(() => flushNow(), 5000);
     try {
