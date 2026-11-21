@@ -1,18 +1,19 @@
 'use strict';
-// opusMC Remastered Edition — 纯云端存档（GitHub Contents API）
-// 存档只存 GitHub 仓库，本地内存运行，不写 IndexedDB / localStorage 存档。
-// 进入自动加载 → 游玩自动保存 → 页面关闭兜底保存。无上传/下载按钮。
+// 改造版：浏览器不再接触 GitHub token，只向 Cloudflare Worker 传「自定义密码」。
+// 与旧版差异（逐条见 PLAN.md 第 4 节）：
+//   1) OWNER/REPO/BRANCH/SAVE_PATH/TOKEN_KEY 常量 → 换成 WORKER_URL / PASS_KEY
+//   2) headers() → 只带 Content-Type + X-Save-Password（无 Authorization）
+//   3) pull()/pushOnce() 的 fetch URL → WORKER_URL；base64/hex 处理一行不改
+//   4) askToken() → askPassword()（文案与输入框改密码）
+//   5) setToken → setPassword，TOKEN_INVALID → BAD_PASSWORD
+//   6) statusText() 文案 token → 密码
+
 (function () {
-  const OWNER = 'xdd2024030565-spec';
-  const REPO  = 'opusMC-Remastered-Edition';
-  const BRANCH = 'main';
-  const SAVE_PATH = 'saves/main.json';
-  const API = 'https://api.github.com/repos/' + encodeURIComponent(OWNER) + '/' +
-              encodeURIComponent(REPO) + '/contents/' + SAVE_PATH;
-  const TOKEN_KEY = 'opusmc_remastered_token';
+  const WORKER_URL = 'https://yongjiu.ccwu.cc/opusmc-save/api/save';
+  const PASS_KEY = 'opusmc_remastered_password';
   const CID_KEY = 'opusmc_remastered_client';
 
-  let token = '', sha = null, clientId = '';
+  let password = '', sha = null, clientId = '';
   let dirty = false, debounceTimer = null, periodicTimer = null;
   let queue = Promise.resolve(), loaded = false, lastError = null;
 
@@ -41,8 +42,6 @@
     for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
     return out;
   }
-  // GitHub 的 API 通道会把非 ASCII 二进制按 UTF-16 文本转码而损坏存档，
-  // 因此压缩后的字节先转纯 ASCII 的 hex 文本再 base64；读取时反向。
   const HEX = '0123456789abcdef';
   function toHex(u8) {
     let s = '';
@@ -69,17 +68,13 @@
     w.write(u8); w.close();
     return dec(new Uint8Array(await new Response(ds.readable).arrayBuffer()));
   }
-  function headers(accept) {
+  function headers() {
     return {
-      'Authorization': 'Bearer ' + token,
-      'Accept': accept || 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'X-Save-Password': password,
     };
   }
 
-  // 递归转成纯 JSON 安全结构：Map→普通对象、Set→数组、TypedArray→数组，剥掉函数/循环引用/live 对象。
-  // 不能用 DB.plain —— 它保留 Map/Set 实例，JSON.stringify(new Map()) 会得到 {} 丢数据。
   function jsonSafe(v, path) {
     path = path || new Set();
     if (v === null || typeof v !== 'object') return typeof v === 'function' || typeof v === 'symbol' ? undefined : v;
@@ -102,7 +97,6 @@
     return out;
   }
 
-  // DB.mem → 可序列化存档包
   function serialize() {
     const worlds = [];
     for (const [id, w] of DB.mem.worlds) worlds.push({ id, w: jsonSafe(w) });
@@ -112,13 +106,7 @@
       if (v.w && v.w.length) rec.w = Array.from(v.w);
       chunks.push(rec);
     }
-    return {
-      version: 1,
-      updatedAt: new Date().toISOString(),
-      clientId,
-      worlds,
-      chunks
-    };
+    return { version: 1, updatedAt: new Date().toISOString(), clientId, worlds, chunks };
   }
 
   function restore(env) {
@@ -136,41 +124,36 @@
   }
 
   async function pull() {
-    const r = await fetch(API + '?t=' + Date.now(), { headers: headers(), cache: 'no-store' });
+    const r = await fetch(WORKER_URL + '?t=' + Date.now(), { headers: headers(), cache: 'no-store' });
     if (r.status === 404) { sha = null; return null; }
-    if (r.status === 401 || r.status === 403) throw new Error('TOKEN_INVALID');
+    if (r.status === 401) throw new Error('BAD_PASSWORD');
     if (!r.ok) throw new Error('拉取存档失败 HTTP ' + r.status);
     const j = await r.json();
     sha = j.sha;
-    // GitHub Contents API 对 >1MB 文件返回的 content 为空，需用 raw media type 单独取。
+    // 大文件的 raw 兜底已由 Worker 完成，返回的 content 一定是 base64 字符串。
     let b64str = j.content;
-    if (!b64str) {
-      const rr = await fetch(API + '?raw=' + Date.now(), { headers: headers('application/vnd.github.raw+json'), cache: 'no-store' });
-      if (!rr.ok) throw new Error('读取大存档失败 HTTP ' + rr.status);
-      b64str = b64(new Uint8Array(await rr.arrayBuffer()));
-    }
-    const ascii = dec(unb64(b64str));   // base64 → ASCII hex 文本
-    const raw = await inflate(fromHex(ascii)); // hex → 压缩字节 → 解压
+    if (!b64str) throw new Error('存档 content 为空（Worker 未正确回填）');
+    const ascii = dec(unb64(b64str));
+    const raw = await inflate(fromHex(ascii));
     return JSON.parse(raw);
   }
 
   async function pushOnce(env) {
-    // 压缩字节 → hex 纯 ASCII 文本 → base64，避免 API 通道的 UTF-16 转码损坏二进制
     const content = b64(enc(toHex(await deflate(JSON.stringify(env)))));
-    const body = { message: 'autosave ' + env.updatedAt, content, branch: BRANCH };
+    const body = { message: 'autosave ' + env.updatedAt, content, branch: 'main' };
     if (sha) body.sha = sha;
     for (let i = 0; i < 4; i++) {
-      const r = await fetch(API, { method: 'PUT', headers: headers(), body: JSON.stringify(body) });
+      const r = await fetch(WORKER_URL, { method: 'PUT', headers: headers(), body: JSON.stringify(body) });
       if (r.ok) {
         const j = await r.json();
         if (j.content && j.content.sha) sha = j.content.sha;
         return;
       }
       if (r.status === 409 || r.status === 422) {
-        const g = await fetch(API + '?t=' + Date.now(), { headers: headers(), cache: 'no-store' });
+        const g = await fetch(WORKER_URL + '?t=' + Date.now(), { headers: headers(), cache: 'no-store' });
         if (g.ok) { sha = (await g.json()).sha; body.sha = sha; continue; }
       }
-      if (r.status === 401 || r.status === 403) throw new Error('TOKEN_INVALID');
+      if (r.status === 401) throw new Error('BAD_PASSWORD');
       throw new Error('上传存档失败 HTTP ' + r.status);
     }
     throw new Error('上传存档冲突重试失败');
@@ -179,7 +162,7 @@
   function enqueue(fn) { queue = queue.then(fn, fn); return queue; }
 
   async function flushNow() {
-    if (!token || !loaded || !dirty) return;
+    if (!password || !loaded || !dirty) return;
     return enqueue(async () => {
       if (!dirty) return;
       dirty = false;
@@ -190,7 +173,7 @@
         log('已保存到云端', env.updatedAt);
       } catch (e) {
         dirty = true;
-        lastError = e.message === 'TOKEN_INVALID' ? 'token 无效或权限不足' : e.message;
+        lastError = e.message === 'BAD_PASSWORD' ? '密码错误' : e.message;
         warn('保存失败：', lastError);
       }
     });
@@ -202,8 +185,6 @@
     debounceTimer = setTimeout(() => { debounceTimer = null; flushNow(); }, 1200);
   }
 
-  // Hook DB 写操作：任何存档变更（世界元数据 / 区块 / 删除）都标记待保存。
-  // 只在 load() 里安装一次，避免重复包装。
   let hooked = false;
   function installHook() {
     if (hooked || typeof DB === 'undefined') return;
@@ -219,40 +200,78 @@
     log('已挂钩 DB 写操作');
   }
 
-  // 首次配置 token 的遮罩（不是游戏内上传/下载按钮，只是一次性授权）
-  function askToken() {
+  // 登录/密码框：DOM 覆盖层（密码遮罩），验证通过才放行；错误留在框内重试。
+  // title/intro 可定制：启动时的「首次配置」与游戏内「登录」共用这一套。
+  function askPassword(title, intro, okLabel) {
     return new Promise(resolve => {
-      let box = document.getElementById('cg-token-box');
+      let box = document.getElementById('cg-password-box');
       if (box) box.remove();
       box = document.createElement('div');
-      box.id = 'cg-token-box';
+      box.id = 'cg-password-box';
       box.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.86);color:#fff;font:14px/1.6 sans-serif;display:flex;align-items:center;justify-content:center;padding:20px';
       box.innerHTML =
         '<div style="max-width:540px;width:100%;background:#1b1b1b;padding:24px;border-radius:12px;border:1px solid #444">' +
-        '<h2 style="margin:0 0 12px;font-size:18px">首次配置 · 云端存档</h2>' +
-        '<p style="color:#ccc;margin:0 0 12px">本游戏存档只保存在你的 GitHub 仓库：进入自动加载、游玩自动保存、本地不留存档。需要一次性填写 Personal Access Token（仅存本机浏览器，不是存档）。</p>' +
-        '<p style="color:#999;font-size:12px;margin:0 0 12px">到 <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener" style="color:#6cf">github.com/settings/personal-access-tokens/new</a> 生成 Fine-grained token，只勾选本仓库 Contents: Read and write。</p>' +
-        '<input id="cg-token-input" type="password" autocomplete="off" placeholder="粘贴 github_pat_..." style="width:100%;box-sizing:border-box;padding:10px;font:14px monospace;background:#000;color:#fff;border:1px solid #666;border-radius:6px">' +
-        '<div style="margin-top:16px;text-align:right"><button id="cg-token-ok" style="padding:9px 22px;background:#2a7;color:#000;border:0;border-radius:6px;font-weight:bold;cursor:pointer">保存并开始</button></div>' +
-        '<div id="cg-token-msg" style="color:#f88;font-size:12px;margin-top:8px;min-height:16px"></div></div>';
+        '<h2 style="margin:0 0 12px;font-size:18px">' + (title || '登录 · 云端存档') + '</h2>' +
+        '<p style="color:#ccc;margin:0 0 12px">' + (intro || '本游戏存档只保存在云端：进入自动加载、游玩自动保存、本地不留存档。请输入存档密码（由站点管理员告知），它只保存在本机浏览器，用于向云端代理证明身份；真实 GitHub token 不会接触浏览器。') + '</p>' +
+        '<input id="cg-password-input" type="password" autocomplete="off" placeholder="输入存档密码" style="width:100%;box-sizing:border-box;padding:10px;font:14px monospace;background:#000;color:#fff;border:1px solid #666;border-radius:6px">' +
+        '<div style="margin-top:16px;text-align:right"><button id="cg-password-ok" style="padding:9px 22px;background:#2a7;color:#000;border:0;border-radius:6px;font-weight:bold;cursor:pointer">' + (okLabel || '登录') + '</button></div>' +
+        '<div id="cg-password-msg" style="color:#f88;font-size:12px;margin-top:8px;min-height:16px"></div></div>';
       document.body.appendChild(box);
-      const input = document.getElementById('cg-token-input');
-      const ok = () => {
+      const input = document.getElementById('cg-password-input');
+      const msg = document.getElementById('cg-password-msg');
+      const btn = document.getElementById('cg-password-ok');
+      const ok = async () => {
         const v = input.value.trim();
-        if (!v) { document.getElementById('cg-token-msg').textContent = '请先粘贴 token'; return; }
-        try { localStorage.setItem(TOKEN_KEY, v); } catch (e) {}
+        if (!v) { msg.textContent = '请输入密码'; return; }
+        msg.textContent = '正在验证…'; btn.disabled = true; input.disabled = true;
+        let bad = false;
+        try { await verifyAndRestore(v); }
+        catch (e) {
+          bad = e.message === 'BAD_PASSWORD';
+          msg.textContent = bad ? '密码错误，请重试' : '网络异常，已允许离线进入：' + e.message;
+        }
+        btn.disabled = false; input.disabled = false;
+        if (bad) { input.value = ''; input.focus(); return; }
         box.remove();
         resolve(v);
       };
-      document.getElementById('cg-token-ok').onclick = ok;
+      btn.onclick = ok;
       input.onkeydown = e => { if (e.key === 'Enter') ok(); };
       setTimeout(() => input.focus(), 0);
     });
   }
 
+  // 验证密码并顺带把云端存档载入内存（登录即完成云端同步）。
+  // 只有验证成功（密码正确或网络暂时不可达但留有旧存档）才把密码落盘，避免输错密码被记住。
+  async function verifyAndRestore(p) {
+    password = p;   // 仅内存，先用于本次请求
+    sha = null;
+    const env = await pull();          // 401 会抛 BAD_PASSWORD
+    if (env) restore(env); else log('云端暂无存档，从空世界开始');
+    try { localStorage.setItem(PASS_KEY, p); } catch (e) {}  // 验证通过才记住
+  }
+
+  // 密码验证通过后，把账号设成内存登录态：仅供本次页面使用，不写 localStorage（刷新即失效，靠密码重新验证）。
+  function markAccountLoggedIn() {
+    if (typeof Account === 'undefined') return;
+    Account.token = 'cloud';
+    if (!Account.data) Account.data = { name: '云端玩家', nick: '云端玩家', id: 'cloud', created: Date.now(), unlocks: { follow: true, triple: true }, super: false };
+    Account.offline = false;
+  }
+
+  async function askPasswordAndLogin() {
+    await askPassword(
+      '登录 · 云端存档',
+      '本游戏存档只保存在云端：进入自动加载、游玩自动保存、本地不留存档。请输入存档密码（由站点管理员告知），它只保存在本机浏览器；真实 GitHub token 不会接触浏览器。密码错误将无法进入。',
+      '登录并进入'
+    );
+    markAccountLoggedIn();
+  }
+
+  async function promptLogin() { await askPasswordAndLogin(); }
+
   function cleanupLocal() {
     try {
-      // 用户要求：本地不存存档 —— 清掉旧版遗留的本地存档
       if (typeof indexedDB !== 'undefined' && indexedDB.deleteDatabase) indexedDB.deleteDatabase('mc-js-clone');
       const del = [];
       for (let i = 0; i < localStorage.length; i++) {
@@ -270,18 +289,24 @@
       clientId = uuid();
       try { localStorage.setItem(CID_KEY, clientId); } catch (e) {}
     }
-    token = (() => { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } })();
-    if (!token) token = await askToken();
-    if (token) {
+    password = (() => { try { return localStorage.getItem(PASS_KEY) || ''; } catch (e) { return ''; } })();
+    if (password) {
+      // 已记住密码：静默验证并载入云端存档。密码若已失效则弹框让用户重输。
       try {
-        const env = await pull();
-        if (env) restore(env); else log('云端暂无存档，从空世界开始');
+        await verifyAndRestore(password);
+        markAccountLoggedIn();
       } catch (e) {
-        if (e.message === 'TOKEN_INVALID') warn('token 无效或权限不足，请在控制台执行 CloudGitHub.setToken(...)');
-        else warn('读取云端存档失败，本次从空世界开始：', e.message);
+        if (e.message === 'BAD_PASSWORD') {
+          warn('已保存的密码已失效，请重新输入');
+          await askPasswordAndLogin();
+        } else {
+          warn('读取云端存档失败，本次从空世界开始：', e.message);
+          markAccountLoggedIn();  // 网络问题仍放行，进度靠后续自动保存补回
+        }
       }
     } else {
-      warn('未配置 token，本次不保存');
+      // 首次进入：弹密码框（这就是游戏的「登录界面」）。
+      await askPasswordAndLogin();
     }
     loaded = true;
     installHook();
@@ -295,20 +320,20 @@
     cleanupLocal();
   }
 
-  function setToken(t) {
-    token = t;
-    try { localStorage.setItem(TOKEN_KEY, t); } catch (e) {}
+  function setPassword(p) {
+    password = p;
+    try { localStorage.setItem(PASS_KEY, p); } catch (e) {}
     sha = null;
-    log('token 已更新');
+    log('密码已更新');
   }
   function statusText() {
-    if (!token) return '未配置 token';
+    if (!password) return '未配置密码';
     if (lastError) return '同步异常：' + lastError;
     return dirty ? '待保存…' : '云端存档已同步';
   }
 
   window.CloudGitHub = {
-    load, markDirty, flushNow, setToken, statusText,
+    load, markDirty, flushNow, setPassword, statusText, promptLogin,
     get loaded() { return loaded; },
     get dirty() { return dirty; }
   };

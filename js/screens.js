@@ -104,8 +104,8 @@ class TitleScreen extends MenuScreen {
       { x: cx + 104, y: l + 84, w: 20, h: 20, icon: 'icon_accessibility', tip: ['全屏'], onClick: () => toggleFullscreen() },
     ];
     // the account (top left) and, until everything is unlocked, the way to unlock it (top right)
-    if (Account.loggedIn) this.widgets.push({ x: 4, y: 4, w: Math.min(120, Font.width(Account.name) + 30), h: 18, label: fitText(Account.name, 110), tip: ['账号：游戏名、识别码、退出登录'], onClick: () => g.ui.open(new AccountScreen(g, this)) });
-    else this.widgets.push({ x: 4, y: 4, w: 60, h: 18, gold: true, label: '登录', tip: ['云存档已启用，进度自动同步到 GitHub，无需登录'], onClick: () => g.ui.open(new LoginScreen(g, () => g.ui.open(new TitleScreen(g)))) });
+    if (Account.loggedIn) this.widgets.push({ x: 4, y: 4, w: Math.min(120, Font.width(Account.name) + 30), h: 18, label: fitText(Account.name, 110), tip: ['云端存档账号：更换密码、退出登录'], onClick: () => g.ui.open(new AccountScreen(g, this)) });
+    else this.widgets.push({ x: 4, y: 4, w: 60, h: 18, gold: true, label: '登录', tip: ['输入存档密码登录，进度自动从云端加载'], onClick: () => g.ui.open(new LoginScreen(g, () => g.ui.open(new TitleScreen(g)))) });
     if (Account.loggedIn && !Account.allUnlocked()) this.widgets.push({ x: u.w - 112, y: 4, w: 108, h: 18, gold: true, label: '解锁披风和联机', onClick: () => g.ui.open(new UnlockScreen(g, this)) });
   }
   drawExtra(ui) {

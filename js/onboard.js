@@ -16,13 +16,13 @@ const LEGAL = {
     '3. 禁止：逆向、反编译游戏代码；抓取后未经书面许可公开或分发；搭建仿冒服务器或镜像站；使用作弊程序、改包连接我们的服务器。',
     '   违反的会被封号，必要时追究法律责任。',
     '4. 联机时请文明游戏：不骂人、不刷屏、不破坏别人的建筑；房主可以踢人、禁言、封禁，我们也会处理举报。',
-    '5. 账号由你自己保管：个人识别码可以登录你的账号，请不要告诉别人。',
+    '5. 存档只保存在云端：进入自动加载、游玩自动保存，本地不存；登录密码由站点管理员告知，请不要告诉别人。',
     '6. 服务器可能维护或调整；存档保存在你的 GitHub 仓库，不会因服务器维护而丢失。',
     '7. 协议更新时会在游戏里再提示一次。问题和建议：游戏里的「反馈问题」，或 B站 私信 UP 主。',
   ],
   privacy: [
     '《隐私说明》',
-    '我们收集：B站 昵称、头像链接和这个游戏专用的用户编号（toyOpenId，只存加密后的值）；你的游戏名、识别码（只存加密后的值）、',
+    '本重制版不收集任何个人信息：没有 B站 账号、没有识别码、没有遥测上传；只有一个存档密码用于读取/写入你自己的云端存档。',
     '皮肤和披风选择、解锁记录；云端存档（GitHub 仓库）；进过的房间；IP 地址（防刷、限流，不长期保存）；',
     '匿名的游戏统计（帧率、设备、显卡、报错，用来改进游戏，可以在 选项 → 遥测数据 里关掉）；你主动提交的反馈和截图。',
     '用途：登录、联机、防止作弊和刷屏、改进游戏。存档只写你自己的 GitHub 仓库。不出售、不用于广告。',
@@ -395,7 +395,7 @@ const Onboarding = {
 const DIFF_PAGES = [
   ['网页里的操作', '电脑：和原版一样（WASD、鼠标、E 背包、T 聊天）；点一下画面锁定鼠标，Esc 释放', '手机：左下摇杆走路，右边滑动转视角；屏幕中间是准星，右下的攻击按钮挖掘 / 攻击、使用按钮放置 / 使用'],
   ['和朋友联机', '多人游戏 → 创建房间，把邀请码或邀请卡片发给朋友；也可以进公开房间', '房主能踢人、禁言、设成员；也可以用自己的单人存档开房间'],
-  ['存档和账号', '存档自动同步到你的 GitHub 仓库，换设备接着玩，永久保存（本地不留存档）', '识别码能在任何设备上登录你的账号，请保密'],
+  ['存档和账号', '存档自动同步到你的 GitHub 仓库，换设备接着玩，永久保存（本地不留存档）', '输入存档密码即登录；登录态只在本页有效，刷新需重新验证'],
   ['皮肤、披风、帮助', '标题界面「皮肤和装饰」：预设皮肤、正版玩家皮肤、原创披风，签到活动的帽子、宠物和前缀', '按 F1 或 暂停 → 游戏说明 查看操作；物品图鉴（背包里的书本按钮）查合成方法'],
 ];
 class DifferencesScreen extends MenuScreen {
@@ -420,7 +420,7 @@ class DifferencesScreen extends MenuScreen {
 }
 // ---- what changed (players of this version, once per update) ----
 const WHATS_NEW = {
-  '2026.10.30': ['B站 账号登录、个人识别码、云端存档（GitHub，换设备接着玩）', '原创披风 7 款（三连 / 关注解锁）、正版玩家皮肤', '手机：摇杆、准星 + 攻击 / 使用按钮、横屏', '新手引导、小地图、死亡点、物品图鉴、整理背包', '用单人存档开联机房间、邀请卡片、本地房间'],
+  '2026.10.30': ['存档密码登录（无识别码/离线账号）、云端存档（GitHub，换设备接着玩）', '原创披风 7 款（三连 / 关注解锁）、正版玩家皮肤', '手机：摇杆、准星 + 攻击 / 使用按钮、横屏', '新手引导、小地图、死亡点、物品图鉴、整理背包', '用单人存档开联机房间、邀请卡片、本地房间'],
 };
 class WhatsNewScreen extends MenuScreen {
   constructor(game, next) { super(game, '更新内容'); this.next = next; this.pauses = false; this.titleY = 16; }
@@ -472,7 +472,7 @@ const Tips = {
     // the skin and account entries (vanilla's skin customisation slot; the resource packs slot, not supported here)
     for (const w of this.widgets) {
       if (w.label === '皮肤自定义…') Object.assign(w, { enabled: true, gold: true, label: '皮肤和披风…', tip: null, onClick: () => g.ui.open(new WardrobeScreen(g, this)) });
-      if (w.label === '资源包…') Object.assign(w, { enabled: true, label: '账号…', tip: ['登录、游戏名、识别码、解锁'], onClick: () => g.ui.open(new AccountScreen(g, this)) });
+      if (w.label === '资源包…') Object.assign(w, { enabled: true, label: '账号…', tip: ['登录、更换存档密码、解锁'], onClick: () => g.ui.open(new AccountScreen(g, this)) });
     }
     const y = Math.max(...this.widgets.filter((w) => w.y < u.h - 40).map((w) => w.y)) + 24;
     if (y < u.h - 50) this.widgets.push(

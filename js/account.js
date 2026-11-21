@@ -22,10 +22,10 @@ function xhr(method, url, body) {
 const Account = {
   // bili: the Bilibili openId this device logged in with ('' = by identity code, undefined = logged in before it was kept)
   token: '', data: null, offline: false, gate: null, checking: false, lastCheck: 0, codeShown: null, bili: undefined,
-  load() {
-    try { const s = JSON.parse(localStorage.getItem('mcjs-account') || '{}'); this.token = s.token || ''; this.data = s.account || null; this.offline = !!s.offline; this.bili = s.bili; } catch (e) { }
-  },
-  save() { try { localStorage.setItem('mcjs-account', JSON.stringify({ token: this.token, account: this.data, offline: this.offline, bili: this.bili })); } catch (e) { } },
+  // opusMC Remastered Edition：登录态只存在内存中，不落盘（离线登录不保留）。
+  // 安全防护全部在密码界面（CloudGitHub），游戏内账号状态随页面刷新即清空。
+  load() { /* no-op: 登录态不落盘 */ },
+  save() { /* no-op: 登录态不落盘 */ },
   get loggedIn() { return !!(this.token && this.data); },
   get name() { return this.data ? this.data.name : ''; },
   device() { const u = navigator.userAgent; return (/Android/.test(u) ? 'Android' : /iPhone|iPad/.test(u) ? 'iOS' : /Windows/.test(u) ? 'Windows' : /Mac/.test(u) ? 'Mac' : '其他') + ' · ' + (/BiliApp/i.test(u) ? 'B站App' : /Edg\//.test(u) ? 'Edge' : /Chrome/.test(u) ? 'Chrome' : /Safari/.test(u) ? 'Safari' : /Firefox/.test(u) ? 'Firefox' : '浏览器'); },
@@ -242,97 +242,35 @@ const UnlockSparks = {
   },
 };
 
-// ---- 登录: Bilibili (gold, recommended) / identity code / offline ----
-// offline: where 离线游玩 goes when it is not next - from the way into multiplayer, back where the player came from
-// (next would ask for the login again, and the same screen came back as if the button did nothing)
+// ---- 登录：存档密码（识别码 / 离线账号 / B站入口已移除，防护全部在密码界面） ----
+// 游戏启动时 cloud-github.js 已先验证密码并载入云端存档；这里是游戏内再次唤起的登录入口。
 class LoginScreen extends MenuScreen {
   constructor(game, next, offline) {
-    super(game, '登录'); this.next = next; this.offline = offline; this.pauses = false; this.titleY = 22; this.note = ''; this.noteColor = '#A0A0A0'; this.busy = false; this.inToy = null;
-    Toy.ready().then((v) => { this.inToy = v; if (this.game.ui.screen === this) this.layout(); });
-    this.mobileOutside = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) && !/BiliApp/i.test(navigator.userAgent);
+    super(game, '登录'); this.next = next; this.offline = offline; this.pauses = false; this.titleY = 22; this.note = ''; this.noteColor = '#A0A0A0'; this.busy = false;
   }
   say(t, bad) { this.note = t; this.noteColor = bad ? '#FF6060' : '#A0A0A0'; }
   done() { const n = this.next; this.next = null; if (n) n(); else this.game.ui.open(new TitleScreen(this.game)); }
   layout() {
     const u = this.game.ui, cx = u.w / 2, y = Math.max(70, Math.floor(u.h / 2 - 40));
-    const bili = this.inToy !== false;
-    this.widgets = [];
-    if (bili) this.widgets.push({ x: cx - 110, y, w: 220, h: 24, gold: true, label: () => (this.busy ? '正在登录…' : this.inToy === null ? '正在连接 B站…' : 'B站一键登录（推荐）'), enabled: !this.busy && this.inToy === true, onClick: () => this.bili() });
-    this.widgets.push(
-      { x: cx - 110, y: y + (bili ? 30 : 0), w: 220, h: 20, label: '用识别码登录', enabled: !this.busy, tip: ['第一次用 B站登录时会给你一个识别码', '在别的设备、别的浏览器里用它登录同一个账号'], onClick: () => this.game.ui.open(new CodeLoginScreen(this.game, this)) },
-      { x: cx - 60, y: y + (bili ? 62 : 32), w: 120, h: 16, label: '离线游玩', enabled: !this.busy, tip: ['只能玩单人游戏，存档只在这台设备上', '之后随时可以在 选项 → 账号 里登录'], onClick: () => { Account.chooseOffline(); if (this.offline) { this.next = null; this.offline(); } else this.done(); } },
-    );
+    this.widgets = [
+      { x: cx - 110, y, w: 220, h: 24, gold: true, label: () => (this.busy ? '正在验证…' : '输入存档密码登录'), enabled: !this.busy, onClick: () => this.login() },
+      { x: cx - 60, y: y + 34, w: 120, h: 18, label: '返回', enabled: !this.busy, onClick: () => this.done() },
+    ];
   }
-  async bili() {
-    this.busy = true; this.say('正在向 B站 请求授权…'); this.layout();
-    try {
-      const j = await Account.loginBili();
-      if (j.code) { this.game.ui.open(new CodeShowScreen(this.game, j.code, () => this.done(), true)); return; }
-      this.done();
-      this.game.ui.message && this.game.ui.message('欢迎回来，' + Account.name, '#55FF55');
-    } catch (e) {
-      this.busy = false; this.say(e instanceof ToyError ? Toy.explain(e) : e.message, true); this.layout();
-      if (e instanceof ToyError && typeof Telemetry !== 'undefined' && Telemetry.flush) Telemetry.flush(false);
-    }
+  async login() {
+    if (typeof CloudGitHub === 'undefined') { this.say('云存档模块未加载', true); this.layout(); return; }
+    this.busy = true; this.say('请在弹出的密码框中输入存档密码…'); this.layout();
+    try { await CloudGitHub.promptLogin(); this.busy = false; this.done(); }
+    catch (e) { this.busy = false; this.say(e.message || '登录失败', true); this.layout(); }
   }
   drawExtra(ui) {
     const c = ui.ctx, cx = ui.w / 2, y = Math.max(70, Math.floor(ui.h / 2 - 40));
-    const lines = ['登录后可以：和朋友联机、存档同步到云端、换皮肤和披风', '账号和存档换设备也在'];
+    const lines = ['本游戏存档只保存在云端：进入自动加载、游玩自动保存', '输入存档密码即可登录；登录态只在本页有效，刷新需重新验证'];
     lines.forEach((t, i) => Font.center(c, fitText(t, ui.w - 8), cx, y - 34 + i * 11, i ? '#A0A0A0' : '#FFFFFF'));
-    if (this.inToy === false) Font.center(c, fitText(this.mobileOutside ? '手机浏览器里不能用 B站登录：可以用识别码，或者在 B站 App 里打开' : '不在 B站 Toy 页面里：可以用识别码登录', ui.w - 8), cx, y - 12, '#FFD24A');
-    if (this.note) Font.center(c, fitText(this.note, ui.w - 8), cx, y + 96, this.noteColor);
-    if (typeof GAME_BUILD !== 'undefined') Font.center(c, '版本 ' + GAME_BUILD, cx, ui.h - 12, '#707070'); // (which build a screenshot is from)
+    if (this.note) Font.center(c, fitText(this.note, ui.w - 8), cx, y + 70, this.noteColor);
+    if (typeof GAME_BUILD !== 'undefined') Font.center(c, '版本 ' + GAME_BUILD, cx, ui.h - 12, '#707070');
   }
-  onEsc() { }
-}
-// the identity code, the one time it is shown
-class CodeShowScreen extends MenuScreen {
-  constructor(game, code, next, fresh) { super(game, fresh ? '这是你的个人识别码' : '新的个人识别码'); this.code = code; this.next = next; this.pauses = false; this.t0 = performance.now(); this.copied = null; }
-  base() { return Math.max(0, Math.floor((this.game.ui.h - 150) / 2)); }
-  layout() {
-    const u = this.game.ui, cx = u.w / 2, y = this.base() + 110;
-    this.titleY = this.base() + 10;
-    this.widgets = [
-      { x: cx - 110, y, w: 108, h: 20, label: () => (this.copied ? '已复制' : this.copied === false ? '复制不了，请抄下来' : '复制识别码'), onClick: async () => { this.copied = await copyText(this.code); } },
-      { x: cx + 2, y, w: 108, h: 20, label: () => { const s = Math.ceil(3 - (performance.now() - this.t0) / 1000); return s > 0 ? `我记下了（${s}）` : '我记下了'; }, enabled: true,
-        onClick: () => { if (performance.now() - this.t0 < 3000) return; const n = this.next; this.next = null; n && n(); } },
-    ];
-  }
-  drawExtra(ui) {
-    const c = ui.ctx, cx = ui.w / 2, y = this.base() + 76;
-    const w = Font.width(this.code) * 2 + 24;
-    drawCard(c, Math.floor(cx - w / 2), y - 8, w, 30, true);
-    c.save(); c.translate(cx, y); c.scale(2, 2); Font.center(c, this.code, 0, 0, '#FFD24A'); c.restore();
-    const lines = [['只显示这一次，请抄下来或复制保存', '#FFFFFF'], ['用它可以在任何设备上登录你的账号：请保密，别发给别人', '#FF8080'], ['忘了可以在 B站 里登录后，到 选项 → 账号 重新生成', '#A0A0A0']];
-    lines.forEach(([t, col], i) => Font.center(c, fitText(t, ui.w - 8), cx, this.base() + 26 + i * 11, col));
-  }
-  onEsc() { }
-}
-class CodeLoginScreen extends FormScreen {
-  constructor(game, parent) { super(game, '用识别码登录', parent); this.code = ''; this.busy = false; }
-  layout() {
-    const u = this.game.ui, cx = u.w / 2;
-    this.fields = {};
-    this.addField('code', cx - 110, 80, 220, '个人识别码（XXXX-XXXX-XXXX-XXXX）', 19, (v) => { const s = v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16); return s.replace(/(.{4})(?=.)/g, '$1-'); });
-    this.widgets = [
-      { x: cx - 110, y: 110, w: 108, h: 20, label: () => (this.busy ? '正在登录…' : '登录'), enabled: !this.busy, onClick: () => this.submit() },
-      { x: cx + 2, y: 110, w: 108, h: 20, label: '返回', onClick: () => this.back() },
-    ];
-    this.focus('code');
-  }
-  async submit() {
-    if (this.busy) return;
-    if (this.code.replace(/-/g, '').length !== 16) { this.say('识别码是 16 位（4 组，每组 4 位）', true); return; }
-    this.busy = true; this.say('正在登录…'); this.layout();
-    try {
-      await Account.loginCode(this.code);
-      this.game.ui.hideInput();
-      this.game.ui.message && this.game.ui.message('已登录：' + Account.name, '#55FF55');
-      const p = this.parent;
-      if (p instanceof LoginScreen) p.done(); else this.game.ui.open(new AccountScreen(this.game, new OptionsScreen(this.game, new TitleScreen(this.game))));
-    } catch (e) { this.busy = false; this.say(e.message, true); this.layout(); }
-  }
-  drawExtra(ui) { this.drawFields(ui); Font.center(ui.ctx, fitText('第一次用 B站登录时，游戏给过你识别码', ui.w - 8), ui.w / 2, 140, '#808080'); }
+  onEsc() { this.done(); }
 }
 
 // ---- 账号 (选项): the game name, unlocks, the identity code, logging out, deleting ----
@@ -352,33 +290,30 @@ class AccountScreen extends FormScreen {
     const confirmDel = this.confirm === 'del';
     this.widgets.push(
       { x: cx + 58, y: 52, w: 92, h: 20, gold: !Account.allUnlocked(), label: Account.allUnlocked() ? '已全部解锁' : '解锁…', onClick: () => g.ui.open(new UnlockScreen(g, this)) },
-      { x: cx - 150, y: 112, w: 148, h: 20, label: '重新生成识别码', tip: ['旧的识别码马上失效', '要在 B站 里登录同一个账号才能用'], onClick: () => this.reset() },
+      { x: cx - 150, y: 112, w: 148, h: 20, label: '更换存档密码', tip: ['只需在入口重新输入新密码，旧密码立即失效', '存档仍在云端，不会丢失'], onClick: () => { if (typeof CloudGitHub !== 'undefined') CloudGitHub.promptLogin(); } },
       { x: cx + 2, y: 112, w: 148, h: 20, label: '皮肤和装饰…', gold: true, onClick: () => g.ui.open(new WardrobeScreen(g, this)) },
-      { x: cx - 150, y: 136, w: 148, h: 20, label: '退出登录', onClick: async () => { await Account.logout(); this.say('已退出登录'); this.layout(); } },
-      { x: cx + 2, y: 136, w: 148, h: 20, label: confirmDel ? '再点一次：永久删除' : '删除账号', color: confirmDel ? '#FF6060' : undefined, tip: ['删除账号、云存档、解锁记录，不能恢复', '这台设备上的存档不受影响'], onClick: () => this.del() },
+      { x: cx - 150, y: 136, w: 148, h: 20, label: '退出登录', onClick: async () => { await Account.logout(); this.say('已退出登录（刷新页面后需重新输入密码）'); this.layout(); } },
+      { x: cx + 2, y: 136, w: 148, h: 20, label: confirmDel ? '再点一次：清空云端存档' : '清空云端存档', color: confirmDel ? '#FF6060' : undefined, tip: ['删除云端的存档，不能恢复', '本地不会有存档'], onClick: () => this.del() },
       ...(!Companion.shown ? [] : [{ x: cx - 150, y: 184, w: 300, h: 20, label: 'AI 伙伴…', tip: ['会聊天、懂你在游戏里做什么的 AI 小伙伴（用你自己的 DeepSeek 密钥）'], onClick: () => g.ui.open(new CompanionScreen(g, this)) }]),
       { x: cx - 150, y: 160, w: 148, h: 20, label: '诊断', tip: ['显示 B站 返回的原始数据（排查问题用）'], onClick: () => g.ui.open(new ToyDiagScreen(g, this)) },
       ...(Account.data.super ? [{ x: cx + 2, y: 160, w: 148, h: 20, gold: true, label: '管理员…', tip: ['临时昵称、全服公告、昵称颜色、管理员披风'], onClick: () => g.ui.open(new AdminScreen(g, this)) }] : []),
       { x: cx - 100, y: u.h - 30, w: 200, h: 20, label: '完成', onClick: () => this.back() },
     );
   }
-  async reset() {
-    try { const code = await Account.resetCode(); this.game.ui.hideInput(); this.game.ui.open(new CodeShowScreen(this.game, code, () => this.game.ui.open(this), false)); }
-    catch (e) { this.say(e instanceof ToyError ? Toy.explain(e) : e.message, true); }
-  }
   async del() {
     if (this.confirm !== 'del') { this.confirm = 'del'; this.layout(); return; }
-    try { await Account.remove(Account.name); this.say('账号已删除'); } catch (e) { this.say(e.message, true); }
+    // 云端存档清理：由站点管理员操作；本界面不再调用已下线的账号服务器。
+    this.say('如需清空云端存档，请联系站点管理员', true);
     this.confirm = null; this.layout();
   }
   drawExtra(ui) {
     const c = ui.ctx, cx = ui.w / 2;
-    if (!Account.loggedIn) { Font.center(c, Account.offline ? '现在是离线游玩：只能玩单人游戏' : '还没有登录', cx, 40, '#A0A0A0'); return; }
+    if (!Account.loggedIn) { Font.center(c, '未登录：请在入口输入存档密码', cx, 40, '#A0A0A0'); return; }
     this.drawFields(ui);
     const d = Account.data, u = Account.unlocks;
-    Font.draw(c, '游戏名：' + Account.name, cx - 150, 52, '#FFFFFF');
-    Font.draw(c, '就是 B站名，B站改名后会跟着变', cx - 150, 64, '#808080');
-    Font.draw(c, `B站：${d.nick || '（识别码登录）'}　　注册于 ${new Date(d.created).toLocaleDateString()}`, cx - 150, 80, '#A0A0A0');
+    Font.draw(c, '玩家：' + Account.name, cx - 150, 52, '#FFFFFF');
+    Font.draw(c, '云端存档账号，登录态仅在本页有效', cx - 150, 64, '#808080');
+    Font.draw(c, `云端玩家　　注册于 ${new Date(d.created).toLocaleDateString()}`, cx - 150, 80, '#A0A0A0');
     const st = (ok, t) => (ok ? '✓ ' : '✗ ') + t;
     Font.draw(c, [st(Account.tripleOk(), '三连'), st(u.follow, '关注'), st(Account.has('online'), '联机')].join('　'), cx - 150, 94, '#E0E0E0');
   }
