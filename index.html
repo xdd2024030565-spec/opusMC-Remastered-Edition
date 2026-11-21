@@ -128,7 +128,7 @@ window.__bootProgress=function(p,label){
   if(txt&&label)txt.textContent=label+' '+Math.round(pct)+'%';
 };
 // 云端验证/加载期间：进度缓慢爬动并显示阶段文字，表示"活着且正在加载"
-function creep(to,label){ var step=function(){ if(pct<to){ window.__bootProgress(pct+1,label); } timer=setTimeout(step,220); }; step(); }
+function creep(to,label){ var step=function(){ if(pct<to){ window.__bootProgress(pct+1,label); timer=setTimeout(step,220); } else { timer=null; } }; step(); }
 window.__bootCreep=creep;
 window.__bootStop=function(){ if(timer){clearTimeout(timer);timer=null;} };
 (function wait(){
