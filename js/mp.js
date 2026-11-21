@@ -177,7 +177,7 @@ class ServerListScreen extends MenuScreen {
   metrics() {
     const u = this.game.ui;
     const listTop = 32,
-      listBottom = u.h - 60;
+      listBottom = Math.max(listTop + rowH, u.h - 84); // 三行按钮在下方，留 6px 间距
     const rowH = 36;
     return {
       listTop,
@@ -196,7 +196,7 @@ class ServerListScreen extends MenuScreen {
     const pages = Math.max(1, Math.ceil(this.entries.length / n));
     this.page = clamp(this.page, 0, pages - 1);
     const bw = (m.boxW - 8) / 2,
-      by = u.h - 54;
+      by = m.listBottom + 6; // 按钮紧贴列表下方
     this.widgets = [{
       x: cx - m.boxW / 2,
       y: by,
