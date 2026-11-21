@@ -528,7 +528,7 @@ class OfflineAccountsScreen extends MenuScreen {
       }];
       if (this.editing >= 0 && this.editing < this.list.length) {
         this.widgets.push({
-          x: cx - w / 2, y: u.h - 32, w, h: 20, label: '删除', tint: 'rgba(140,30,30,0.55)',
+          x: cx - w / 2, y: 136, w, h: 20, label: '删除', tint: 'rgba(140,30,30,0.55)',
           onClick: () => this.removeEdit()
         });
       }
@@ -622,7 +622,7 @@ class OfflineAccountsScreen extends MenuScreen {
       this.editing = -1;
       g.ui.hideInput();
       await this.sync();
-    }, () => { this.mode = 'list'; this.editing = -1; g.ui.hideInput(); this.layout(); }));
+    }, () => g.ui.open(this), this));
   }
   select(i) {
     if (i < 0 || i >= this.list.length) return;
@@ -718,14 +718,14 @@ class EditServerScreen extends MenuScreen {
     };
     this.widgets = [{
       x: cx - w / 2,
-      y: u.h - 56,
+      y: 196,
       w: this.entry ? (w - 8) / 2 : w,
       h: 20,
       label: '完成',
       onClick: () => this.done()
     }, {
       x: cx + 4,
-      y: u.h - 56,
+      y: 196,
       w: (w - 8) / 2,
       h: 20,
       label: '取消',
@@ -733,10 +733,11 @@ class EditServerScreen extends MenuScreen {
     }];
     if (this.entry) this.widgets.push({
       x: cx - w / 2,
-      y: u.h - 32,
+      y: 222,
       w: w,
       h: 20,
       label: '删除',
+      tint: 'rgba(140,30,30,0.55)',
       onClick: () => this.remove()
     });
     this.focus(this.field);
@@ -812,8 +813,8 @@ class EditServerScreen extends MenuScreen {
       this.parent.selected = -1;
       this.parent.load();
       this.back();
-    }, () => this.layout()));
-    g.ui.open(new AskScreen(g, '删除服务器', [`你确定要把「${this.entry.name || ip}」从列表里删掉吗？`], '继续', false, second, () => this.layout()));
+    }, () => g.ui.open(this), this.parent));
+    g.ui.open(new AskScreen(g, '删除服务器', [`你确定要把「${this.entry.name || ip}」从列表里删掉吗？`], '继续', false, second, () => g.ui.open(this), this.parent));
   }
   onEsc() {
     this.game.ui.hideInput();
@@ -831,7 +832,7 @@ class EditServerScreen extends MenuScreen {
     draw('ip', '服务器地址（IP 或域名）');
     draw('port', '端口');
     draw('proxy', '中转地址（留空用默认：' + Multiplayer.defaultProxy() + '）');
-    Font.center(c, '这是网页版：地址由中转去连（浏览器不能直接开 TCP），中转默认在本站的 8780 端口', ui.w / 2, ui.h - 76, '#808080');
+    Font.center(c, '网页版由中转连服务器（浏览器不能直接开 TCP）', ui.w / 2, 250, '#808080');
   }
 }
 
@@ -866,7 +867,7 @@ class DirectConnectScreen extends MenuScreen {
       onClick: () => this.join()
     }, {
       x: cx - w / 2,
-      y: u.h - 32,
+      y: 128,
       w: w,
       h: 20,
       label: '取消',
@@ -1049,7 +1050,7 @@ const codeOnly = v => String(v).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0,
 // ---- AskScreen: a confirmation with several lines, and optionally a red (destructive) yes ----
 
 class AskScreen extends MenuScreen {
-  constructor(game, title, lines, yesLabel, danger, onYes, onNo) {
+  constructor(game, title, lines, yesLabel, danger, onYes, onNo, parent) {
     super(game, title);
     this.titleY = 40;
     this.lines = Array.isArray(lines) ? lines : [String(lines)];
@@ -1057,6 +1058,7 @@ class AskScreen extends MenuScreen {
     this.danger = !!danger;
     this.onYes = onYes;
     this.onNo = onNo;
+    this.parent = parent || null;
   }
   layout() {
     const u = this.game.ui,
@@ -1076,7 +1078,7 @@ class AskScreen extends MenuScreen {
       w: 150,
       h: 20,
       label: '取消',
-      onClick: () => this.onNo ? this.onNo() : this.onEsc()
+      onClick: () => this.onNo ? this.onNo() : this.back()
     }];
   }
   drawExtra(ui) {
@@ -1086,5 +1088,9 @@ class AskScreen extends MenuScreen {
   onEsc() {
     this.onNo ? this.onNo() : this.back();
   }
-  back() {}
+  back() {
+    // return to where the ask came from (parent screen), never a dead end
+    this.game.ui.hideInput();
+    this.game.ui.open(this.parent || new TitleScreen(this.game));
+  }
 }
