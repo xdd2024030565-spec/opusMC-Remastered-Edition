@@ -1021,6 +1021,7 @@ window.__OFFLINE_MODS = ["tconstruct", "farmersdelight", "veinminer", "nightvisi
 <script src="js/netconfig.js"></script>
 
 <script src="js/net.js"></script>
+<script src="js/mp.js"></script>
 
 <script src="js/beacon.js"></script>
 
@@ -1080,10 +1081,10 @@ window.__OFFLINE_MODS = ["tconstruct", "farmersdelight", "veinminer", "nightvisi
   if (window.__YYMC_BG__) return;
   window.__YYMC_BG__ = true;
   var cv = document.getElementById('yymc-bg');
+  var stage = document.getElementById('stage') || document.body;
   if (!cv) {
     cv = document.createElement('canvas');
     cv.id = 'yymc-bg';
-    var stage = document.getElementById('stage') || document.body;
     stage.insertBefore(cv, stage.firstChild);
   }
   cv.style.zIndex = '0';

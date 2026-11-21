@@ -1786,25 +1786,6 @@ class LocalRoomStatusScreen extends MenuScreen {
       onClick: () => onlineGate(g, () => g.ui.open(g.p2pHost ? new LocalRoomStatusScreen(g, this) : new LocalRoomScreen(g, this)), this)
     });
   };
-  // joining by code: a local room when one is open under it, else a room on the service
-  const sub = MultiplayerScreen.prototype.submit;
-  MultiplayerScreen.prototype.submit = async function () {
-    const code = String(this.code || '').replace(/[^A-Za-z0-9]/g, '');
-    if (code.length >= 6 && RoomService.base()) {
-      try {
-        const r = await RoomService.api('/api/p2p/has?code=' + encodeURIComponent(code));
-        if (r.has) return joinLocalRoom(this.game, code, this);
-      } catch (e) {}
-    }
-    return sub.call(this);
-  };
-  // (local room codes may be longer than the service's)
-  const lay2 = MultiplayerScreen.prototype.layout;
-  MultiplayerScreen.prototype.layout = function () {
-    lay2.call(this);
-    if (this.fields.code) this.fields.code.max = 12;
-    if (this.fields.code) this.fields.code.filter = v => v.replace(/[^A-Za-z0-9]/g, '').slice(0, 12);
-  };
 })();
 async function joinLocalRoom(g, code, parent) {
   const name = Account.loggedIn && Account.name || nameOnly(g.settings.netName || '') || 'Steve' + Math.floor(Math.random() * 900 + 100);

@@ -521,19 +521,7 @@ class ReconnectScreen extends MenuScreen {
   NetClient.prototype.fail = function (reason) {
     const g = this.g,
       room = this.opts && this.opts.room;
-    if (!this.closed && room && reason === '游戏正在更新中…请稍后' && (this.joined || g.reconnect) && (g.reconnect && g.reconnect.n || 0) < 5) {
-      this.closed = true;
-      const n = (g.reconnect && g.reconnect.n || 0) + 1,
-        name = this.name;
-      g.reconnect = {
-        room,
-        n
-      };
-      g.leaveServer();
-      Telemetry.count && Telemetry.count('net:reconnect');
-      g.ui.open(new ReconnectScreen(g, n, () => g.joinRoom(room, name)));
-      return;
-    }
+    // (rooms are gone: a plain server list has nothing to rejoin by code, so a drop goes straight to the notice)
     g.reconnect = null;
     return fail.call(this, reason);
   };
@@ -935,84 +923,6 @@ class ItemDexScreen extends FormScreen {
   }
 }
 
-// ---- the owner's quick switches in the room screen: keep inventory, day, clear weather, difficulty, PvP ----
-(() => {
-  // (one row of the player list gives way to the switches)
-  RoomScreen.prototype.rows = function () {
-    return Math.max(2, Math.floor((this.game.ui.h - 108 - 56 - (this.R && this.R.isOwner ? 22 : 0)) / 22));
-  };
-  const lay = RoomScreen.prototype.layout;
-  RoomScreen.prototype.layout = function () {
-    lay.call(this);
-    const R = this.R,
-      g = this.game;
-    if (!R || !R.isOwner) return;
-    const u = g.ui,
-      cx = u.w / 2,
-      y = u.h - 76,
-      cmd = (c, msg) => {
-        g.net.chat(c);
-        this.say(msg);
-      };
-    // (a game rule in all three dimensions: each has its own on the server - keep inventory was off in the Nether)
-    const rule = (r, msg) => {
-      for (const d of ['overworld', 'the_nether', 'the_end']) g.net.chat('/execute in minecraft:' + d + ' run gamerule ' + r);
-      this.say(msg);
-    };
-    const S = this.quick || (this.quick = {
-      keep: true,
-      pvp: true,
-      diff: 2
-    });
-    const DF = ['peaceful', 'easy', 'normal', 'hard'],
-      DN = ['和平', '简单', '普通', '困难'];
-    this.widgets.push({
-      x: cx - 160,
-      y,
-      w: 62,
-      h: 18,
-      label: () => '死亡不掉落：' + (S.keep ? '开' : '关'),
-      onClick: () => {
-        S.keep = !S.keep;
-        rule('keep_inventory ' + S.keep, S.keep ? '死亡不掉落：开' : '死亡不掉落：关');
-      }
-    }, {
-      x: cx - 96,
-      y,
-      w: 40,
-      h: 18,
-      label: '白天',
-      onClick: () => cmd('/time set day', '已经设成白天')
-    }, {
-      x: cx - 54,
-      y,
-      w: 40,
-      h: 18,
-      label: '晴天',
-      onClick: () => cmd('/weather clear', '已经放晴')
-    }, {
-      x: cx - 12,
-      y,
-      w: 70,
-      h: 18,
-      label: () => '难度：' + DN[S.diff],
-      onClick: () => {
-        S.diff = (S.diff + 1) % 4;
-        cmd('/difficulty ' + DF[S.diff], '难度：' + DN[S.diff]);
-      }
-    }, {
-      x: cx + 60,
-      y,
-      w: 50,
-      h: 18,
-      label: () => 'PVP：' + (S.pvp ? '开' : '关'),
-      onClick: () => {
-        S.pvp = !S.pvp;
-        rule('pvp ' + S.pvp, S.pvp ? '玩家可以互相伤害' : '玩家不能互相伤害');
-      }
-    });
-  };
-})();
 
 // ---- a photo: the picture without the HUD, with the game's name and a QR code, to share or keep ----
 const Photo = {

@@ -141,8 +141,10 @@ const Checkin = (() => {
       this.tried = performance.now();
       this.triedWho = who;
       this.wait = 60000;
-      if (typeof RoomService === 'undefined' || !RoomService.base()) {
-        this.err = '还没有配置游戏服务器地址';
+      // this build has no account/room service any more (the save password replaced it):签到 and the
+      // events it counted are part of the old service, so this screen just says so and stays empty
+      {
+        this.err = '本版已无签到服务（登录改为存档密码）';
         return Promise.resolve(null);
       }
       this.busyWho = who;
@@ -179,7 +181,7 @@ const Checkin = (() => {
     async quiet() {
       const t0 = Date.now(),
         s = ++this.seq,
-        base = RoomService.base(),
+        base = '',
         who = this.who();
       const get = async (path, body) => {
         let f;

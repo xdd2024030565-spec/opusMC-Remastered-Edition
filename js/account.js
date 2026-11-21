@@ -56,7 +56,7 @@ const Account = {
     return (/Android/.test(u) ? 'Android' : /iPhone|iPad/.test(u) ? 'iOS' : /Windows/.test(u) ? 'Windows' : /Mac/.test(u) ? 'Mac' : '其他') + ' · ' + (/BiliApp/i.test(u) ? 'B站App' : /Edg\//.test(u) ? 'Edge' : /Chrome/.test(u) ? 'Chrome' : /Safari/.test(u) ? 'Safari' : /Firefox/.test(u) ? 'Firefox' : '浏览器');
   },
   async api(path, body) {
-    if (!RoomService.base()) throw new Error('还没有配置游戏服务器地址');
+    throw new Error('本版已无账号服务（登录改为存档密码），账号接口不可用');
     let r;
     // (plain text, the token in the body, no headers: some phone app web views drop every request the browser must
     // ask the server about first - a JSON content type or an Authorization header - so logging in never got there)
@@ -64,7 +64,7 @@ const Account = {
       ...(body || {}),
       _t: this.token
     } : body) : undefined;
-    const url = RoomService.base() + path,
+    const url = '/' + String(path).replace(/^\/+/, ''),
       method = send ? 'POST' : 'GET';
     // a request that never comes back is tried once more with XMLHttpRequest (some app web views fail one and not the
     // other); if that fails too, what the browser said is shown and sent with the statistics (the phones that can't
@@ -451,39 +451,7 @@ setTimeout(() => {
   };
   if (back) go(0);else if (Date.now() - Account.lastCheck > 5000) Account.checkUnlocks(true).catch(() => {});
 }, 3000);
-// the rooms: this account's room key and token instead of the browser's own key
-(() => {
-  const key = RoomService.key.bind(RoomService);
-  RoomService.key = () => Account.loggedIn && Account.data.roomKey ? Account.data.roomKey : key();
-  const api = RoomService.api.bind(RoomService);
-  RoomService.api = async function (path, body) {
-    if (!Account.token || !body) return api(path, body); // (what is only looked at needs no token)
-    let r;
-    try {
-      r = await fetch(this.base() + path, {
-        method: 'POST',
-        body: JSON.stringify({
-          ...body,
-          _t: Account.token
-        })
-      });
-    } catch (e) {
-      throw new Error('游戏正在更新中…请稍后');
-    }
-    const j = await r.json().catch(() => ({
-      error: '游戏正在更新中…请稍后'
-    }));
-    if (!r.ok || j && j.error) throw Object.assign(new Error(j && j.error || 'HTTP ' + r.status), {
-      gate: !!(j && j.gate)
-    });
-    return j;
-  };
-  const save = Game.prototype.saveSettings;
-  Game.prototype.saveSettings = function () {
-    save.call(this);
-    Account.settingsChanged();
-  };
-})();
+// (the room service is gone: this build's multiplayer is a vanilla-style server list, see js/mp.js)
 
 // ---- drawing helpers for the account screens ----
 // a rounded dark card with a gold or grey edge
@@ -1329,7 +1297,7 @@ class UnlockScreen extends MenuScreen {
       this.then = null;
       return t();
     }
-    g.ui.open(new MultiplayerScreen(g, this.parent instanceof TitleScreen ? this.parent : new TitleScreen(g)));
+    g.ui.open(new ServerListScreen(g, this.parent instanceof TitleScreen ? this.parent : new TitleScreen(g)));
   }
   async go(kind) {
     const g = Account.gate || {};
@@ -1649,7 +1617,9 @@ class FollowGateScreen extends MenuScreen {
   }
 }
 async function onlineGate(g, then, parent) {
-  if (!RoomService.base()) return then();
+  // this build has no account service any more: the save password is the only gate, and it was already
+  // asked for on the way in (CloudGitHub.load). Anything that used to need follows/triples is open.
+  return then();
   const gate = await Account.loadGate();
   if (!gate.requireAccount && !gate.follow && !gate.triple) return then();
   if (!Account.loggedIn) {

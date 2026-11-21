@@ -140,10 +140,10 @@ class LoadingScreen extends MenuScreen {
       y: u.h / 2 + 60,
       w: 200,
       h: 20,
-      label: '去公开房间（加入正在玩的）',
+      label: '去服务器列表',
       onClick: () => {
         g.leaveServer();
-        g.ui.open(new MultiplayerScreen(g, null));
+        g.ui.open(new ServerListScreen(g, null));
       }
     }, {
       x: cx - 100,
@@ -208,8 +208,8 @@ class TitleScreen extends MenuScreen {
       w: 200,
       h: 20,
       label: '多人游戏',
-      onClick: () => onlineGate(g, () => g.ui.open(new MultiplayerScreen(g, this)), this),
-      tip: ['加入公开房间、用邀请码加入朋友的房间，或者自己开一个（4–10 人）']
+      onClick: () => g.ui.open(new ServerListScreen(g, this)),
+      tip: ['连真实的 Minecraft 服务器：填地址即可加入，名字可以自己改']
     }, {
       x: cx - 100,
       y: l + 48,
@@ -1391,15 +1391,7 @@ class PauseScreen extends MenuScreen {
       h: 20,
       label: '选项…',
       onClick: () => g.ui.open(new OptionsScreen(g, this))
-    }, g.net && g.net.room ? {
-      x: cx + 4,
-      y: y + 72,
-      w: 98,
-      h: 20,
-      label: '房间…',
-      tip: ['邀请朋友、看在场的玩家；房主可以踢人、封禁、禁言'],
-      onClick: () => g.ui.open(new RoomScreen(g, this))
-    } : null, {
+    }, {
       x: cx - 102,
       y: y + (roomMode ? 120 : 96),
       w: 204,

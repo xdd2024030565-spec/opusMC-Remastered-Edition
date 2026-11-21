@@ -29,17 +29,7 @@ async function textOk(g, text, scene) {
     }
     return chat.call(this, text);
   };
-  // a room's name (shown to everyone in the public list)
-  const cr = CreateRoomScreen.prototype.submit;
-  CreateRoomScreen.prototype.submit = async function () {
-    if (this.busy) return;
-    if (!(await textOk(this.game, this.roomName, 'room_name'))) {
-      this.say('房间名包含不合适的内容，换一个吧', true);
-      return;
-    }
-    return cr.call(this);
-  };
-  for (const Cls of [FeedbackScreen, ReportScreen]) {
+  for (const Cls of [typeof FeedbackScreen === 'function' ? FeedbackScreen : null].filter(Boolean)) {
     const sub = Cls.prototype.submit;
     Cls.prototype.submit = async function () {
       if (this.text && String(this.text).trim() && !(await textOk(this.game, this.text, Cls === FeedbackScreen ? 'feedback' : 'report'))) {
@@ -171,32 +161,6 @@ class InviteCardScreen extends MenuScreen {
     this.game.ui.open(this.parent);
   }
 }
-(() => {
-  // the room screen's invite buttons: a gold one opening the card
-  const lay = RoomScreen.prototype.layout;
-  RoomScreen.prototype.layout = function () {
-    lay.call(this);
-    const R = this.R;
-    if (!R) return;
-    const i = this.widgets.findIndex(w => w.label === '复制邀请码'),
-      j = this.widgets.findIndex(w => w.label === '复制链接');
-    if (i >= 0 && j >= 0) {
-      const a = this.widgets[i],
-        b = this.widgets[j];
-      this.widgets.splice(Math.max(i, j), 1);
-      this.widgets.splice(Math.min(i, j), 1);
-      this.widgets.push({
-        x: a.x,
-        y: a.y,
-        w: b.x + b.w - a.x,
-        h: a.h,
-        gold: true,
-        label: '邀请朋友…',
-        onClick: () => this.game.ui.open(new InviteCardScreen(this.game, this))
-      });
-    }
-  };
-})();
 
 // ---- the page closing inside Toy: leave the room cleanly, send the last statistics ----
 Toy.onPageClose(() => {
