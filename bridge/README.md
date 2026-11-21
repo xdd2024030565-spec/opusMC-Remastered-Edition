@@ -45,7 +45,7 @@ node server.js              # 监听 8780 端口
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `PORT` | `8780` | WebSocket 监听端口。改了要同步改网页的 `?proxy=` 或默认 8780 约定 |
+| `PORT` | `8780` | WebSocket 监听端口。改了要同步改网页的 `?proxy=` 或默认 8780 约定。**也可写进 `.env`（`.env` 优先于环境变量）** |
 | `HOST` | `0.0.0.0` | 监听地址。本机自测可用 `127.0.0.1`，公网穿透保持 `0.0.0.0` |
 | `ALLOW_HOSTS` | 空（不限） | 允许连的目标服务器地址，逗号分隔，如 `mc.example.com,play.example.com`。**放到公网务必填**，否则任何人都能借你的桥访问任意主机（SSRF） |
 | `MC_VERSION` | 空（自动） | 强制用某个 MC 版本登录（如 `1.21.4`）；留空则由桥 ping 服务器的协议号自动判断 |
@@ -78,8 +78,13 @@ https://你的网页/?proxy=wss://xxxx.cpolar.cn/ws
 1. 注册 [wispbyte.com](https://wispbyte.com)（邮箱即可）。
 2. 控制台创建 Node.js 服务器（免费套餐），拿到面板里的 SFTP / 文件管理器和分配的**端口**（面板 Server Details 里写着，不是 8780）。
 3. 上传 `bridge/` 里的 3 个文件：`server.js`、`states.js`、`package.json`（**不要传 node_modules**，平台启动时会自动 `npm install`）。
-4. 启动命令保持默认 `node server.js`（或 `npm start`）——`server.js` 会自动读平台注入的 `PORT` 环境变量。
+4. 启动命令保持默认 `node server.js`（或 `npm start`）。
+   **端口必须对上**：这类面板通常已经在自己的启动配置里塞了一个 `PORT`（常见是 8780），和面板实际分配的端口不一致，外部就永远读不到。两种做法任选：
+   - 面板 Configuration → Environment 里新建 `.env`，写 `PORT=<面板分配端口>`；`server.js` 会自己读 `.env`，且 **`.env` 的优先级高于环境变量**，所以能盖掉平台塞的默认值。
+   - 或者把面板启动配置里的 `PORT` 变量直接改成分配端口。
+   改完看日志那一行：`bridge listening on http://0.0.0.0:<分配端口>` —— 端口对了才算成功。
 5. 启动成功后 `https://<面板分配地址>/healthz` 应返回 `ok`，`/status` 返回 JSON。
+   面板只给 `IP:端口` 而没有域名的，浏览器 HTTPS 页面里连 `wss://IP:端口` 会因证书不匹配失败（证书是 `*.面板域名`），需要一层转发域名或直接用面板给的域名。
 6. 网页多人游戏 → 直接连接 → 地址填 `wss://<面板域名>/ws?host=<目标MC服务器>&port=25565`（或服务器条目的 proxy 字段填它）。
 
 注意：桥的 WS 走 wss（面板自带 HTTPS）；**只支持 offline（离线）模式服务器**；建议设环境变量 `ALLOW_HOSTS` 限制可连的目标，防止陌生人借桥扫内网。

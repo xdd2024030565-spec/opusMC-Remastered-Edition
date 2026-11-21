@@ -26,15 +26,52 @@ const mc = require('minecraft-protocol');
 const mcDataOf = require('minecraft-data');
 const { buildStates } = require('./states');
 
-const PORT = +(process.env.PORT || 8780);
-const HOST = process.env.HOST || '0.0.0.0';
+// ---------------------------------------------------------------------------
+// .env 支持：Node 19 及更早不支持 `node --env-file`，托管面板又常常只写 .env
+// 文件而不注入真实环境变量，所以这里自己读一遍。
+// 注意：面板给 PORT 塞了默认值（8780），会让 .env 里的 PORT 失效，
+// 因此 .env 里的值优先于已存在的环境变量。
+function readDotEnv() {
+  const out = {};
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const dirs = [__dirname, process.cwd()];
+    const names = ['.env', 'env'];
+    for (const d of dirs) for (const n of names) {
+      const file = path.join(d, n);
+      if (!fs.existsSync(file)) continue;
+      for (const raw of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+        const line = raw.trim();
+        if (!line || line.startsWith('#')) continue;
+        const i = line.indexOf('=');
+        if (i <= 0) continue;
+        const k = line.slice(0, i).trim();
+        let v = line.slice(i + 1).trim();
+        if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+        if (k) out[k] = v;
+      }
+    }
+  } catch (e) { /* .env 可选，读失败就忽略 */ }
+  return out;
+}
+const ENV_FILE = readDotEnv();
+// 取配置：.env 优先，其次真实环境变量，最后默认值
+const cfg = (k, def) => {
+  if (ENV_FILE[k] !== undefined && ENV_FILE[k] !== '') return ENV_FILE[k];
+  if (process.env[k] !== undefined && process.env[k] !== '') return process.env[k];
+  return def;
+};
+
+const PORT = +(cfg('PORT', 0) || cfg('SERVER_PORT', 0) || cfg('SERVERPORT', 0) || 8780);
+const HOST = cfg('HOST', '0.0.0.0');
 // 允许连的目标服务器（逗号分隔）；留空 = 不限制（本机自用；放到公网请务必填）
-const ALLOW_HOSTS = String(process.env.ALLOW_HOSTS || '')
+const ALLOW_HOSTS = String(cfg('ALLOW_HOSTS', ''))
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 // 默认连哪个 MC 版本：不填就问服务器（ping），以服务器为准
-const DEFAULT_VERSION = process.env.MC_VERSION || '';
-const MAX_CLIENTS = +(process.env.MAX_CLIENTS || 32);
-const LOG = process.env.QUIET ? () => {} : (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
+const DEFAULT_VERSION = cfg('MC_VERSION', '');
+const MAX_CLIENTS = +(cfg('MAX_CLIENTS', 32));
+const LOG = cfg('QUIET', '') ? () => {} : (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 let live = 0;
 
