@@ -291,6 +291,11 @@ class ServerListScreen extends MenuScreen {
   // a click on the list picks a row (and a double click joins, like vanilla)
   mouseDown(ui, mx, my, b) {
     const m = this.metrics();
+    // click on the name box: open the on-screen keyboard for the player name
+    if (b === 0 && this.nameBox && mx >= this.nameBox.x && mx < this.nameBox.x + this.nameBox.w && my >= this.nameBox.y && my < this.nameBox.y + this.nameBox.h) {
+      this.focusName();
+      return;
+    }
     if (b === 0 && mx >= m.cx - m.boxW / 2 && mx <= m.cx + m.boxW / 2 && my >= m.listTop && my < m.listBottom) {
       const i = this.page * m.rows + Math.floor((my - m.listTop) / m.rowH);
       if (i >= 0 && i < this.entries.length) {
@@ -310,6 +315,20 @@ class ServerListScreen extends MenuScreen {
   back() {
     this.game.ui.hideInput();
     this.game.ui.open(this.parent || new TitleScreen(this.game));
+  }
+  // open the on-screen keyboard for the player name box
+  focusName() {
+    const u = this.game.ui,
+      b = this.nameBox;
+    u.showInput(b.x + 4, b.y + 6, b.w - 8, 10, this.userName, () => {
+      // on enter: commit the name (already kept in sync via onInput)
+    }, {
+      onInput: v => {
+        this.userName = String(v || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 16);
+      },
+      onEsc: () => this.onEsc(),
+      max: 16
+    });
   }
   onEsc() {
     this.back();
