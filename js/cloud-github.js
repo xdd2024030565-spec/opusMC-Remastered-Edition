@@ -16,6 +16,7 @@
   let password = '', sha = null, clientId = '';
   let dirty = false, debounceTimer = null, periodicTimer = null;
   let queue = Promise.resolve(), loaded = false, lastError = null;
+  let readOnly = false;  // 云端不可达时为 true：允许进游戏，但禁止写云端，避免空存档覆盖真实进度
 
   const log = (...a) => console.log('[cloud-github]', ...a);
   const warn = (...a) => console.warn('[cloud-github]', ...a);
@@ -75,6 +76,18 @@
     };
   }
 
+  // fetch 超时保护：国内访问 Cloudflare 偶尔会挂起，绝不能让它永久卡住游戏启动。
+  // 超时后抛错，由上层"网络异常放行"分支处理，游戏照常进入。
+  const FETCH_TIMEOUT = 10000;
+  function fetchWithTimeout(url, opts) {
+    opts = opts || {};
+    if (typeof AbortController === 'undefined') return fetch(url, opts);
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT);
+    opts.signal = ctl.signal;
+    return fetch(url, opts).finally(() => clearTimeout(timer));
+  }
+
   function jsonSafe(v, path) {
     path = path || new Set();
     if (v === null || typeof v !== 'object') return typeof v === 'function' || typeof v === 'symbol' ? undefined : v;
@@ -124,7 +137,7 @@
   }
 
   async function pull() {
-    const r = await fetch(WORKER_URL + '?t=' + Date.now(), { headers: headers(), cache: 'no-store' });
+    const r = await fetchWithTimeout(WORKER_URL + '?t=' + Date.now(), { headers: headers(), cache: 'no-store' });
     if (r.status === 404) { sha = null; return null; }
     if (r.status === 401) throw new Error('BAD_PASSWORD');
     if (!r.ok) throw new Error('拉取存档失败 HTTP ' + r.status);
@@ -143,14 +156,14 @@
     const body = { message: 'autosave ' + env.updatedAt, content, branch: 'main' };
     if (sha) body.sha = sha;
     for (let i = 0; i < 4; i++) {
-      const r = await fetch(WORKER_URL, { method: 'PUT', headers: headers(), body: JSON.stringify(body) });
+      const r = await fetchWithTimeout(WORKER_URL, { method: 'PUT', headers: headers(), body: JSON.stringify(body) });
       if (r.ok) {
         const j = await r.json();
         if (j.content && j.content.sha) sha = j.content.sha;
         return;
       }
       if (r.status === 409 || r.status === 422) {
-        const g = await fetch(WORKER_URL + '?t=' + Date.now(), { headers: headers(), cache: 'no-store' });
+        const g = await fetchWithTimeout(WORKER_URL + '?t=' + Date.now(), { headers: headers(), cache: 'no-store' });
         if (g.ok) { sha = (await g.json()).sha; body.sha = sha; continue; }
       }
       if (r.status === 401) throw new Error('BAD_PASSWORD');
@@ -162,7 +175,7 @@
   function enqueue(fn) { queue = queue.then(fn, fn); return queue; }
 
   async function flushNow() {
-    if (!password || !loaded || !dirty) return;
+    if (!password || !loaded || !dirty || readOnly) return;
     return enqueue(async () => {
       if (!dirty) return;
       dirty = false;
@@ -228,7 +241,8 @@
         try { await verifyAndRestore(v); }
         catch (e) {
           bad = e.message === 'BAD_PASSWORD';
-          msg.textContent = bad ? '密码错误，请重试' : '网络异常，已允许离线进入：' + e.message;
+          if (!bad) readOnly = true;  // 网络异常放行，但禁止上传，避免空存档覆盖云端真实进度
+          msg.textContent = bad ? '密码错误，请重试' : '网络异常，已允许离线进入（只读，不会覆盖云端）：' + e.message;
         }
         btn.disabled = false; input.disabled = false;
         if (bad) { input.value = ''; input.focus(); return; }
@@ -300,8 +314,9 @@
           warn('已保存的密码已失效，请重新输入');
           await askPasswordAndLogin();
         } else {
-          warn('读取云端存档失败，本次从空世界开始：', e.message);
-          markAccountLoggedIn();  // 网络问题仍放行，进度靠后续自动保存补回
+          warn('读取云端存档失败，本次仅本地试玩（不会覆盖云端）：', e.message);
+          readOnly = true;  // 云端不可达：放行进游戏，但禁止上传，避免空存档覆盖真实进度
+          markAccountLoggedIn();
         }
       }
     } else {
@@ -328,6 +343,7 @@
   }
   function statusText() {
     if (!password) return '未配置密码';
+    if (readOnly) return '云端不可用 · 只读试玩（进度不会保存）';
     if (lastError) return '同步异常：' + lastError;
     return dirty ? '待保存…' : '云端存档已同步';
   }
