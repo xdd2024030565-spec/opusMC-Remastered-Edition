@@ -194,6 +194,11 @@
       if (!dirty) return;
       dirty = false;
       const env = serialize();
+      // 保护：世界被删光时绝不用空存档覆盖云端（要真删由 deleteRemote 显式处理）
+      if (!env.worlds || !env.worlds.length) {
+        log('没有世界可保存，跳过上传');
+        return;
+      }
       try {
         await pushOnce(env);
         lastError = null;
@@ -352,6 +357,39 @@
     cleanupLocal();
   }
 
+  // 删除云端存档（整个 main.json）。用于「删除世界」时把云端进度一并清掉，
+  // 否则下次进入会自动把旧进度拉回来，删了等于没删。
+  async function deleteRemote(reason) {
+    if (!password) throw new Error('未配置密码');
+    if (readOnly) throw new Error('云端不可用，无法删除云端存档');
+    return enqueue(async () => {
+      if (!sha) {
+        // 还不知道当前 sha：先拉一次，避免用错 sha 删掉别人的新版本
+        const env = await pull();
+        if (!env) return { deleted: false, empty: true };
+      }
+      for (let i = 0; i < 4; i++) {
+        const r = await fetchWithTimeout(WORKER_URL, {
+          method: 'DELETE', headers: headers(),
+          body: JSON.stringify({ message: reason || 'delete save ' + new Date().toISOString(), sha, branch: 'main' })
+        });
+        if (r.ok || r.status === 404) {
+          sha = null; dirty = false;
+          log('云端存档已删除');
+          return { deleted: true };
+        }
+        if (r.status === 409 || r.status === 422) {
+          const g = await fetchWithTimeout(WORKER_URL + '?t=' + Date.now(), { headers: headers(), cache: 'no-store' });
+          if (g.ok) { sha = (await g.json()).sha; continue; }
+          if (g.status === 404) { sha = null; dirty = false; return { deleted: true }; }
+        }
+        if (r.status === 401) throw new Error('BAD_PASSWORD');
+        throw new Error('删除云端存档失败 HTTP ' + r.status);
+      }
+      throw new Error('删除冲突重试失败');
+    });
+  }
+
   function setPassword(p) {
     password = p;
     try { localStorage.setItem(PASS_KEY, p); } catch (e) {}
@@ -366,7 +404,7 @@
   }
 
   window.CloudGitHub = {
-    load, markDirty, flushNow, setPassword, statusText, promptLogin,
+    load, markDirty, flushNow, setPassword, statusText, promptLogin, deleteRemote,
     get loaded() { return loaded; },
     get dirty() { return dirty; }
   };

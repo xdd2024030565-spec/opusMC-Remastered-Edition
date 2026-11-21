@@ -174,10 +174,36 @@ class WorldListScreen extends MenuScreen {
   del() {
     const w = this.shown()[this.sel]; if (!w) return;
     const g = this.game;
-    g.ui.open(new ConfirmScreen(g, '你确定要删除这个世界吗？', `“${w.name}”将会永久消失！（真的很久！）`, '删除', async (yes) => {
-      if (yes) { await DB.deleteWorld(w.id); this.worlds = await DB.listWorlds(); this.sel = -1; }
-      g.ui.open(this);
+    // 三次确认：因为云端存档是唯一副本，删掉就真没了。
+    g.ui.open(new ConfirmScreen(g, '删除世界（1 / 3）', `真的要删除“${w.name}”吗？`, '继续', (yes) => {
+      if (!yes) { g.ui.open(this); return; }
+      g.ui.open(new ConfirmScreen(g, '删除世界（2 / 3）', '这个世界的方块、背包和进度将会永久消失，无法恢复。', '我确定', (yes2) => {
+        if (!yes2) { g.ui.open(this); return; }
+        g.ui.open(new ConfirmScreen(g, '删除世界（3 / 3）', '云端存档也会一并删除。这是最后一次确认。', '永久删除', async (yes3) => {
+          if (!yes3) { g.ui.open(this); return; }
+          await this.doDelete(w);
+        }));
+      }));
     }));
+  }
+  async doDelete(w) {
+    const g = this.game;
+    try {
+      await DB.deleteWorld(w.id);
+      // 云端只存一个 main.json：世界删光了就把云端存档一起删掉，否则下次进入又会拉回来
+      const left = await DB.listWorlds();
+      if (!left.length && window.CloudGitHub && window.CloudGitHub.deleteRemote) {
+        try { await window.CloudGitHub.deleteRemote('delete world ' + w.id); }
+        catch (e) {
+          console.error('[cloud-github] 删除云端存档失败', e);
+          if (g.ui && g.ui.message) g.ui.message('本地已删除，但云端存档删除失败：' + e.message, '#FF5555');
+        }
+      }
+      this.worlds = await DB.listWorlds(); this.sel = -1;
+    } catch (e) {
+      console.error('删除世界失败', e);
+    }
+    g.ui.open(this);
   }
   drawExtra(ui) {
     const c = ui.ctx, cx = ui.w / 2, top = this.listTop, bottom = this.listBottom;
@@ -258,27 +284,60 @@ class ConfirmScreen extends MenuScreen {
 
 // vanilla EditWorldScreen
 class EditWorldScreen extends MenuScreen {
-  constructor(game, parent, world) { super(game, '编辑世界'); this.titleY = 15; this.parent = parent; this.world = world; this.name = world.name; }
+  constructor(game, parent, world) {
+    super(game, '编辑世界'); this.titleY = 15; this.parent = parent; this.world = world; this.name = world.name;
+    // 和原版一样：改模式 / 难度要「允许命令」打开才放行；极限模式锁死。
+    this.hardcore = !!world.hardcore;
+    this.mode = this.hardcore ? 'survival' : (world.mode === 'creative' ? 'creative' : world.mode === 'spectator' ? 'spectator' : 'survival');
+    this.difficulty = this.hardcore ? 3 : (world.difficulty ?? 2);
+    this.cheats = this.hardcore ? false : (world.cheats ?? true);
+  }
+  get locked() { return this.hardcore || !this.cheats; }
   layout() {
     const u = this.game.ui, cx = u.w / 2;
     this.field = { x: cx - 100, y: 53, w: 200, h: 20 };
     const no = { enabled: false, tip: ['网页版无法访问存档文件夹'] };
+    const MODES = { survival: '生存', creative: '创造', spectator: '旁观' };
+    const DIFF = ['和平', '简单', '普通', '困难'];
+    const lockTip = this.hardcore
+      ? ['极限模式的游戏模式与难度已锁定']
+      : ['需要先打开「允许命令」才能修改游戏模式与难度', '（和原版一致：命令选项决定了作弊权限）'];
     this.widgets = [
-      { x: cx - 100, y: 77, w: 200, h: 20, label: '重置图标', enabled: !!this.world.icon, onClick: async () => { delete this.world.icon; delete this.parent.icons[this.world.id]; await DB.putWorld(this.world); this.layout(); } },
-      { x: cx - 100, y: 101, w: 200, h: 20, label: '打开世界文件夹', ...no },
-      { x: cx - 100, y: 125, w: 200, h: 20, label: '进行备份', ...no },
-      { x: cx - 100, y: 149, w: 200, h: 20, label: '打开备份文件夹', ...no },
+      { x: cx - 100, y: 77, w: 200, h: 20, label: () => '游戏模式：' + (this.hardcore ? '极限' : MODES[this.mode]), enabled: !this.locked, tip: this.locked ? lockTip : ['生存 / 创造 / 旁观之间切换'],
+        onClick: () => { this.mode = { survival: 'creative', creative: 'spectator', spectator: 'survival' }[this.mode]; this.layout(); } },
+      { x: cx - 100, y: 101, w: 200, h: 20, label: () => '难度：' + (this.hardcore ? '极限' : DIFF[this.difficulty]), enabled: !this.locked, tip: this.locked ? lockTip : ['和平 / 简单 / 普通 / 困难'],
+        onClick: () => { this.difficulty = (this.difficulty + 1) % 4; this.layout(); } },
+      { x: cx - 100, y: 125, w: 200, h: 20, label: () => '允许命令：' + (this.cheats && !this.hardcore ? '开' : '关'), enabled: !this.hardcore, tip: this.hardcore ? ['极限模式无法开启命令'] : ['关闭后游戏模式与难度将被锁定'],
+        onClick: () => { this.cheats = !this.cheats; this.layout(); } },
+      { x: cx - 100, y: 149, w: 200, h: 20, label: '重置图标', enabled: !!this.world.icon, onClick: async () => { delete this.world.icon; delete this.parent.icons[this.world.id]; await DB.putWorld(this.world); this.layout(); } },
       { x: cx - 100, y: 173, w: 200, h: 20, label: '优化世界', ...no },
       { x: cx - 100, y: u.h - 27, w: 98, h: 20, label: '保存', onClick: () => this.save() },
       { x: cx + 2, y: u.h - 27, w: 98, h: 20, label: '取消', onClick: () => this.back() },
     ];
     u.showInput(this.field.x + 4, this.field.y + 6, this.field.w - 8, 10, this.name, () => this.save(), { onInput: (v) => { this.name = v; }, onEsc: () => this.back(), max: 32 });
   }
-  async save() { this.world.name = this.name.trim() || this.world.name; await DB.putWorld(this.world); this.back(); }
+  async save() {
+    this.game.ui.hideInput();
+    const w = this.world;
+    w.name = this.name.trim() || w.name;
+    if (!this.hardcore) {
+      w.mode = this.mode;
+      w.difficulty = this.difficulty;
+      w.cheats = this.cheats;
+    }
+    await DB.putWorld(w);
+    // 世界已经在游戏里跑着的时候，改完立刻生效（下次进世界也会按 meta 恢复）
+    const g = this.game;
+    if (g.state === 'play' && g.worldMeta && g.worldMeta.id === w.id && !this.hardcore) {
+      g.mode = w.mode; g.difficulty = w.difficulty; g.cheats = w.cheats;
+    }
+    this.back();
+  }
   back() { this.game.ui.hideInput(); this.game.ui.open(this.parent); }
   drawExtra(ui) {
     Font.draw(ui.ctx, '世界名称', this.field.x, 40, '#A0A0A0');
     ui.nine('text_field_hl', this.field.x, this.field.y, this.field.w, this.field.h, 1);
+    if (this.locked) Font.center(ui.ctx, this.hardcore ? '极限模式：模式与难度已锁定' : '未开启命令：模式与难度不可修改', ui.w / 2, 201, '#FFAA00');
   }
   onEsc() { this.back(); }
 }
