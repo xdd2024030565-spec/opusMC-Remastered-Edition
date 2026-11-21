@@ -337,7 +337,7 @@ class EditWorldScreen extends MenuScreen {
   drawExtra(ui) {
     Font.draw(ui.ctx, '世界名称', this.field.x, 40, '#A0A0A0');
     ui.nine('text_field_hl', this.field.x, this.field.y, this.field.w, this.field.h, 1);
-    if (this.locked) Font.center(ui.ctx, this.hardcore ? '极限模式：模式与难度已锁定' : '未开启命令：模式与难度不可修改', ui.w / 2, 201, '#FFAA00');
+    if (this.locked) Font.center(ui.ctx, this.hardcore ? '极限模式：模式与难度已锁定' : '未开启命令：模式与难度不可修改', ui.w / 2, Math.min(201, ui.h - 46), '#FFAA00');
   }
   onEsc() { this.back(); }
 }
