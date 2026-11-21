@@ -11,9 +11,8 @@ canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block;image
 #textinput{position:absolute;display:none;background:transparent;border:none;outline:none;color:transparent;caret-color:transparent;font-family:monospace;padding:0 2px;z-index:5}
 #boot{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#ef323d;color:white;font:16px sans-serif}
 #boot b{font-size:30px;margin-bottom:18px}
-#bootbar{width:280px;height:10px;border:2px solid white;padding:2px;margin:12px}
-#bootbar i{display:block;height:100%;width:0;background:white;animation:bootscan 1.1s ease-in-out infinite}
-@keyframes bootscan{0%{margin-left:0;width:0}50%{margin-left:55%;width:45%}100%{margin-left:100%;width:0}}
+#bootbar{width:280px;height:14px;border:2px solid white;padding:2px;margin:12px;background:rgba(0,0,0,.25);box-sizing:content-box}
+#bootbar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#7ed321,#5cb85c);transition:width .35s ease}
 #err{position:absolute;left:10%;top:30%;width:80%;display:none;color:white;white-space:pre-wrap;font:18px sans-serif;z-index:20}
 </style>
 </head>
@@ -121,10 +120,23 @@ el.textContent=e.message||(e.target&&e.target.src?'资源加载失败：'+e.targ
 <script src="js/panorama_data.js"></script>
 <script src="js/panorama.js"></script>
 <script>
+(function(){
+var bar=document.querySelector('#bootbar i'), txt=document.getElementById('boottext'), pct=0, timer=null;
+window.__bootProgress=function(p,label){
+  pct=Math.max(pct,Math.min(100,p));
+  if(bar)bar.style.width=pct+'%';
+  if(txt&&label)txt.textContent=label+' '+Math.round(pct)+'%';
+};
+// 云端验证/加载期间：进度缓慢爬动并显示阶段文字，表示"活着且正在加载"
+function creep(to,label){ var step=function(){ if(pct<to){ window.__bootProgress(pct+1,label); } timer=setTimeout(step,220); }; step(); }
+window.__bootCreep=creep;
+window.__bootStop=function(){ if(timer){clearTimeout(timer);timer=null;} };
 (function wait(){
-if(window.game&&window.game.state!=='boot'){
-document.getElementById('boot').style.display='none';
-}else{setTimeout(wait,100);}
+  if(window.game&&window.game.state!=='boot'){
+    window.__bootStop(); window.__bootProgress(100,'加载完成');
+    document.getElementById('boot').style.display='none';
+  }else{setTimeout(wait,100);}
+})();
 })();
 </script>
 </body>

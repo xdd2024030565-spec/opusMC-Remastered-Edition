@@ -198,6 +198,7 @@ window.addEventListener('load', async () => {
     catch (e) { console.error('[cloud-github] 载入失败', e); }
   }
   const g = window.game = new Game();
+  if (typeof window.__bootProgress === 'function') window.__bootProgress(80, '正在初始化渲染');
   try { await g.init(); }
   catch (e) {
     console.error(e);

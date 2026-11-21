@@ -298,6 +298,7 @@
   }
 
   async function load() {
+    if (typeof window.__bootCreep === 'function') window.__bootCreep(45, '正在连接云端存档');
     clientId = (() => { try { return localStorage.getItem(CID_KEY) || ''; } catch (e) { return ''; } })();
     if (!clientId) {
       clientId = uuid();
@@ -324,6 +325,8 @@
       await askPasswordAndLogin();
     }
     loaded = true;
+    if (typeof window.__bootStop === 'function') window.__bootStop();
+    if (typeof window.__bootProgress === 'function') window.__bootProgress(65, '正在初始化游戏');
     installHook();
     periodicTimer = setInterval(() => flushNow(), 5000);
     try {
