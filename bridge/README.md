@@ -71,7 +71,20 @@ https://你的网页/?proxy=wss://xxxx.cpolar.cn/ws
 - 固定部署可改 `js/mp-config.js` 里的 `window.MP_PROXY`，就不用每次带参数。
 - 服务器列表里每条记录也能单独设「中转地址」（高级配置），留空即用默认。
 
-## 方案 A：cpolar 国内穿透（推荐）
+## 方案 A：Wispbyte 免费托管（推荐，24/7 不休眠）
+
+免费 512MB 内存 / 1GB 磁盘 / Node.js / 无需信用卡；唯一要求是每 14 天登录一次网页保活。桥只占 ~50MB 内存，绰绰有余。
+
+1. 注册 [wispbyte.com](https://wispbyte.com)（邮箱即可）。
+2. 控制台创建 Node.js 服务器（免费套餐），拿到面板里的 SFTP / 文件管理器和分配的**端口**（面板 Server Details 里写着，不是 8780）。
+3. 上传 `bridge/` 里的 3 个文件：`server.js`、`states.js`、`package.json`（**不要传 node_modules**，平台启动时会自动 `npm install`）。
+4. 启动命令保持默认 `node server.js`（或 `npm start`）——`server.js` 会自动读平台注入的 `PORT` 环境变量。
+5. 启动成功后 `https://<面板分配地址>/healthz` 应返回 `ok`，`/status` 返回 JSON。
+6. 网页多人游戏 → 直接连接 → 地址填 `wss://<面板域名>/ws?host=<目标MC服务器>&port=25565`（或服务器条目的 proxy 字段填它）。
+
+注意：桥的 WS 走 wss（面板自带 HTTPS）；**只支持 offline（离线）模式服务器**；建议设环境变量 `ALLOW_HOSTS` 限制可连的目标，防止陌生人借桥扫内网。
+
+## 方案 B：cpolar 国内穿透
 
 适合手机 proot 里跑桥、公网网页要连的场景。cpolar 免费版 4 条隧道 / 1Mbps / 国内节点 / 原生 WebSocket；免费域名每次启动可能变，固定域名需要手机号认证。
 
@@ -92,7 +105,7 @@ https://你的网页/?proxy=wss://xxxx.cpolar.cn/ws
 
 注意：免费域名重启 cpolar 后会变，变了就要改 `?proxy=`（或重新登录 cpolar 拿固定子域）。桥端口、cpolar 隧道端口要一致（都是 8780）。
 
-## 方案 B：局域网直连
+## 方案 C：局域网直连
 
 网页和桥在同一个 WiFi / 局域网时，不需要任何穿透：
 
@@ -107,7 +120,7 @@ https://你的网页/?proxy=wss://xxxx.cpolar.cn/ws
 
 若网页必须是 HTTPS（如线上域名），局域网直连走不通 `ws://`，请用方案 A 的 `wss://` 或方案 C。
 
-## 方案 C：其他兜底
+## 方案 D：其他兜底
 
 - **Cloudflare 命名隧道**：免费，但需要自有域名 + 把域名 NS 托管到 Cloudflare；国内访问较慢，且有约 100 秒空闲超时，长连接会被断。适合有域名且能接受延迟的场景。
 - **国内 VPS + frp**：在 VPS 上跑 frp 服务端，桥所在机器跑 frp 客户端，把 8780 映射到 VPS，网页用 `ws(s)://VPS域名:端口`。可控但要自己有 VPS。
