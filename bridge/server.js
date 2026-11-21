@@ -20,6 +20,7 @@
 // 或在 js/mp-config.js 里写 window.MP_PROXY。
 // ---------------------------------------------------------------------------
 
+const http = require('http');
 const { WebSocketServer } = require('ws');
 const mc = require('minecraft-protocol');
 const mcDataOf = require('minecraft-data');
@@ -552,11 +553,36 @@ function packChunkFrame(c) {
 }
 
 // ---------------------------------------------------------------------------
-// WebSocket 服务
+// WebSocket + HTTP 服务（共享一个端口：Wispbyte 这类托管只给一个端口）
 // ---------------------------------------------------------------------------
 function startServer() {
-const wss = new WebSocketServer({ port: PORT, host: HOST, maxPayload: 8 * 1024 * 1024 });
-LOG('bridge listening on ws://' + HOST + ':' + PORT + '/ws  (ALLOW_HOSTS=' + (ALLOW_HOSTS.join(',') || '*') + ')');
+// 健康检查 + 简单首页：托管平台用它判断「还活着」，也方便你打开看状态
+const server = http.createServer((req, res) => {
+  if (req.url === '/healthz' || req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('ok\n');
+    return;
+  }
+  if (req.url === '/' || req.url === '/status') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      name: 'opusmc-bridge',
+      online: true,
+      clients: live,
+      maxClients: MAX_CLIENTS,
+      allowHosts: ALLOW_HOSTS.length ? ALLOW_HOSTS : '*'
+    }));
+    return;
+  }
+  res.writeHead(404, { 'Content-Type': 'text/plain' });
+  res.end('not found\n');
+});
+
+const wss = new WebSocketServer({ server, maxPayload: 8 * 1024 * 1024 });
+server.listen(PORT, HOST, () => {
+  LOG('bridge listening on http://' + HOST + ':' + PORT + '  (WS 路径任意，健康检查 /healthz，状态 /status)');
+  LOG('ALLOW_HOSTS=' + (ALLOW_HOSTS.join(',') || '*') + '  MAX_CLIENTS=' + MAX_CLIENTS);
+});
 
 wss.on('connection', (ws, req) => {
   const ip = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
