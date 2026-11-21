@@ -1,19 +1,28 @@
+
 'use strict';
+
 // ---------------------------------------------------------------------------
 // The player's account (game/ACCOUNT_PLAN.md): log in with Bilibili inside Toy, or with the personal identity code
 // anywhere, or play offline (single player only). The room service keeps the accounts (multiplayer/rooms/accounts.js);
 // the browser keeps the login token. What an account unlocks (the rules the user set):
 //   三连 on the Toy's video  -> the static capes + custom skins
 //   following the UP         -> the animated capes
-//   both                     -> playing online
-// (until the video is out - no video in the service's gate config - following alone unlocks what 三连 would)
+//   both                     -> playing online, 鲸鲸 (companion.js; the user, 2026-11-07)
+// The video is the room service's (its gate, /api/gate - the user, 11-13: the update's new video, the old ones no longer
+// count), and so is whether 三连 / following are asked for. (Without a video, following alone unlocks what 三连 would.)
+// The 模组 screen asks the same as playing online (mods_ui.js modsGate).
 // ---------------------------------------------------------------------------
 // a request by XMLHttpRequest (a string body goes as text/plain: no preflight), as {status, ok, text}
 function xhr(method, url, body) {
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
-    x.open(method, url); x.timeout = 15000;
-    x.onload = () => resolve({ status: x.status, ok: x.status >= 200 && x.status < 300, text: x.responseText });
+    x.open(method, url);
+    x.timeout = 15000;
+    x.onload = () => resolve({
+      status: x.status,
+      ok: x.status >= 200 && x.status < 300,
+      text: x.responseText
+    });
     x.onerror = () => reject(new Error('XHR 出错'));
     x.ontimeout = () => reject(new Error('XHR 超时'));
     x.send(body === undefined ? null : body);
@@ -21,137 +30,378 @@ function xhr(method, url, body) {
 }
 const Account = {
   // bili: the Bilibili openId this device logged in with ('' = by identity code, undefined = logged in before it was kept)
-  token: '', data: null, offline: false, gate: null, checking: false, lastCheck: 0, codeShown: null, bili: undefined,
-  // opusMC Remastered Edition：登录态只存在内存中，不落盘（离线登录不保留）。
-  // 安全防护全部在密码界面（CloudGitHub），游戏内账号状态随页面刷新即清空。
-  load() { /* no-op: 登录态不落盘 */ },
-  save() { /* no-op: 登录态不落盘 */ },
-  get loggedIn() { return !!(this.token && this.data); },
-  get name() { return this.data ? this.data.name : ''; },
-  device() { const u = navigator.userAgent; return (/Android/.test(u) ? 'Android' : /iPhone|iPad/.test(u) ? 'iOS' : /Windows/.test(u) ? 'Windows' : /Mac/.test(u) ? 'Mac' : '其他') + ' · ' + (/BiliApp/i.test(u) ? 'B站App' : /Edg\//.test(u) ? 'Edge' : /Chrome/.test(u) ? 'Chrome' : /Safari/.test(u) ? 'Safari' : /Firefox/.test(u) ? 'Firefox' : '浏览器'); },
+  token: '',
+  data: null,
+  offline: false,
+  gate: null,
+  checking: false,
+  lastCheck: 0,
+  codeShown: null,
+  bili: undefined,
+  // opusMC Remastered Edition：登录态只在内存（刷新即失效），密码是唯一的凭证。
+  load() {
+    /* no-op: 登录态不落盘 */
+  },
+  save() {
+    /* no-op: 登录态不落盘 */
+  },
+  get loggedIn() {
+    return !!(this.token && this.data);
+  },
+  get name() {
+    return this.data ? this.data.name : '';
+  },
+  device() {
+    const u = navigator.userAgent;
+    return (/Android/.test(u) ? 'Android' : /iPhone|iPad/.test(u) ? 'iOS' : /Windows/.test(u) ? 'Windows' : /Mac/.test(u) ? 'Mac' : '其他') + ' · ' + (/BiliApp/i.test(u) ? 'B站App' : /Edg\//.test(u) ? 'Edge' : /Chrome/.test(u) ? 'Chrome' : /Safari/.test(u) ? 'Safari' : /Firefox/.test(u) ? 'Firefox' : '浏览器');
+  },
   async api(path, body) {
     if (!RoomService.base()) throw new Error('还没有配置游戏服务器地址');
     let r;
     // (plain text, the token in the body, no headers: some phone app web views drop every request the browser must
     // ask the server about first - a JSON content type or an Authorization header - so logging in never got there)
-    const send = body || this.token ? JSON.stringify(this.token ? { ...(body || {}), _t: this.token } : body) : undefined;
-    const url = RoomService.base() + path, method = send ? 'POST' : 'GET';
+    const send = body || this.token ? JSON.stringify(this.token ? {
+      ...(body || {}),
+      _t: this.token
+    } : body) : undefined;
+    const url = RoomService.base() + path,
+      method = send ? 'POST' : 'GET';
     // a request that never comes back is tried once more with XMLHttpRequest (some app web views fail one and not the
     // other); if that fails too, what the browser said is shown and sent with the statistics (the phones that can't
     // log in never reach the service, so this is the only way to see why)
-    try { const f = await fetch(url, { method, body: send }); r = { status: f.status, ok: f.ok, text: await f.text() }; }
-    catch (e1) {
-      try { r = await xhr(method, url, send); }
-      catch (e2) {
-        const why = `${(e1 && e1.message) || e1} / ${(e2 && e2.message) || e2}${navigator.onLine === false ? ' / 离线' : ''}`.slice(0, 80);
-        if (typeof Telemetry !== 'undefined' && Telemetry.event) { Telemetry.event('net_fail', { path: path.replace(/\/w[a-z0-9]+/, '/w'), why, dev: this.device() }); Telemetry.flush(false); }
-        throw new Error('连不上游戏服务器（' + why + '）');
+    try {
+      const f = await fetch(url, {
+        method,
+        body: send
+      });
+      r = {
+        status: f.status,
+        ok: f.ok,
+        text: await f.text()
+      };
+    } catch (e1) {
+      try {
+        r = await xhr(method, url, send);
+      } catch (e2) {
+        const why = `${e1 && e1.message || e1} / ${e2 && e2.message || e2}${navigator.onLine === false ? ' / 离线' : ''}`.slice(0, 80);
+        if (typeof Telemetry !== 'undefined' && Telemetry.event) {
+          Telemetry.event('net_fail', {
+            path: path.replace(/\/w[a-z0-9]+/, '/w'),
+            why,
+            dev: this.device()
+          });
+          Telemetry.flush(false);
+        }
+        throw new Error('游戏正在更新中…请稍后');
       }
     }
-    let j; try { j = JSON.parse(r.text); } catch (e) { j = { error: '服务器没有回应（HTTP ' + r.status + '）' }; }
-    if (r.status === 401 && this.token) { this.token = ''; this.data = null; this.save(); }
-    if (!r.ok || j.error) throw Object.assign(new Error(j.error || 'HTTP ' + r.status), { status: r.status, body: j });
+    let j;
+    try {
+      j = JSON.parse(r.text);
+    } catch (e) {
+      j = {
+        error: '游戏正在更新中…请稍后'
+      };
+    }
+    if (r.status === 401 && this.token) {
+      this.token = '';
+      this.data = null;
+      this.save();
+    }
+    if (!r.ok || j.error) throw Object.assign(new Error(j.error || 'HTTP ' + r.status), {
+      status: r.status,
+      body: j
+    });
     return j;
   },
-  took(j) { if (j.token) this.token = j.token; if (j.account) this.data = j.account; this.offline = false; this.save(); this.applySettings(); return j; },
+  took(j) {
+    if (j.token) this.token = j.token;
+    if (j.account) this.data = j.account;
+    this.offline = false;
+    this.save();
+    this.applySettings();
+    return j;
+  },
   // Bilibili inside Toy: the profile, then the service's account for it (new: with the identity code to show once)
   async loginBili() {
     // ("not logged in" once more after a moment: a page opened from another app may get Bilibili's login late)
     let p;
-    try { p = await Toy.profile(); } catch (e) {
-      if (typeof Telemetry !== 'undefined' && Telemetry.event) Telemetry.event('toy_fail', { err: e && e.type, code: e && e.code, msg: String((e && e.message) || '').slice(0, 60), dev: this.device() });
+    try {
+      p = await Toy.profile();
+    } catch (e) {
+      if (typeof Telemetry !== 'undefined' && Telemetry.event) Telemetry.event('toy_fail', {
+        err: e && e.type,
+        code: e && e.code,
+        msg: String(e && e.message || '').slice(0, 60),
+        dev: this.device()
+      });
       if (!(e instanceof ToyError && e.type === 'not_logged_in')) throw e;
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 1500));
       p = await Toy.profile();
     }
     if (!p.toyOpenId) throw new Error('B站没有给出身份信息，请再试一次');
-    const j = this.took(await this.api('/api/account/bili', { openId: p.toyOpenId, nickname: p.nickname, avatar: p.avatar, device: this.device() }));
-    this.bili = p.toyOpenId; this.save();
+    const j = this.took(await this.api('/api/account/bili', {
+      openId: p.toyOpenId,
+      nickname: p.nickname,
+      avatar: p.avatar,
+      device: this.device()
+    }));
+    this.bili = p.toyOpenId;
+    this.save();
     Telemetry.count && Telemetry.count('login_bili');
-    this.checkUnlocks(true).catch(() => { });
+    this.checkUnlocks(true).catch(() => {});
     return j;
   },
   async loginCode(code) {
-    code = String(code).replace(/[^A-Z0-9]/gi, '').toUpperCase();
-    if (code.length !== 16) throw new Error('识别码是 16 位（4 组，每组 4 位）');
-    const response = await this.api('/api/account/code', { code, device: this.device() });
-    if (!response || typeof response.token !== 'string' || !response.token || !response.account || typeof response.account !== 'object') throw new Error('账号服务返回的数据无效');
-    const j = this.took(response);
-    this.bili = ''; this.save();
+    const j = this.took(await this.api('/api/account/code', {
+      code,
+      device: this.device()
+    }));
+    this.bili = '';
+    this.save();
     Telemetry.count && Telemetry.count('login_code');
     return j;
   },
-  async refresh() { if (!this.token) return null; try { this.took(await this.api('/api/account/me')); } catch (e) { } return this.data; },
-  async update(fields) { this.took(await this.api('/api/account/update', fields)); return this.data; },
-  async logout() { try { await this.api('/api/account/logout', {}); } catch (e) { } this.token = ''; this.data = null; this.bili = undefined; this.save(); },
-  async resetCode() { const p = await Toy.profile(); const j = await this.api('/api/account/reset-code', { openId: p.toyOpenId }); return j.code; },
-  async remove(confirmName) { let openId = ''; try { openId = (await Toy.profile()).toyOpenId; } catch (e) { } await this.api('/api/account/delete', { openId, confirm: confirmName }); this.token = ''; this.data = null; this.save(); },
-  chooseOffline() { this.offline = true; this.save(); },
+  async refresh() {
+    if (!this.token) return null;
+    try {
+      this.took(await this.api('/api/account/me'));
+    } catch (e) {}
+    return this.data;
+  },
+  async update(fields) {
+    this.took(await this.api('/api/account/update', fields));
+    return this.data;
+  },
+  async logout() {
+    try {
+      await this.api('/api/account/logout', {});
+    } catch (e) {}
+    this.token = '';
+    this.data = null;
+    this.bili = undefined;
+    this.save();
+  },
+  async resetCode() {
+    const p = await Toy.profile();
+    const j = await this.api('/api/account/reset-code', {
+      openId: p.toyOpenId
+    });
+    return j.code;
+  },
+  async remove(confirmName) {
+    let openId = '';
+    try {
+      openId = (await Toy.profile()).toyOpenId;
+    } catch (e) {}
+    await this.api('/api/account/delete', {
+      openId,
+      confirm: confirmName
+    });
+    this.token = '';
+    this.data = null;
+    this.save();
+  },
+  chooseOffline() {
+    this.offline = true;
+    this.save();
+  },
   async loadGate(force) {
     if (this.gate && !force) return this.gate;
-    try { this.gate = await this.api('/api/gate'); } catch (e) { this.gate = this.gate || { follow: true, triple: false, videos: [], requireAccount: true }; }
+    // (the videos the service's: changed there, the game follows - 11-13)
+    // (jump: the share of 去三连 each video gets, in % - the others split what is left; 11-14)
+    try {
+      const g = await this.api('/api/gate'),
+        jump = {};
+      for (const [k, v] of Object.entries(g && g.jump || {})) if (/^BV[0-9A-Za-z]{10}$/.test(k) && v > 0) jump[k] = Math.min(100, +v);
+      this.gate = Object.assign({}, g, {
+        videos: (g.videos || []).filter(v => /^BV[0-9A-Za-z]{10}$/.test(v)),
+        aiVideos: [],
+        jump
+      });
+    } catch (e) {
+      this.gate = this.gate || {
+        follow: true,
+        triple: true,
+        videos: [],
+        aiVideos: [],
+        requireAccount: true
+      };
+    }
     return this.gate;
   },
+  // the video 去三连 opens (the user 11-14: several videos, 三连 on any one is enough): one at random by the service's
+  // shares (gate.jump, e.g. the newest 30%; the others split the rest), drawn again on every tap. (13r went back to a
+  // video already liked first and kept the same one for the page: nearly everyone had liked the old video, so it was
+  // the old one every time - "跳转的一直是老视频", the user 11-14)
+  pickVideo() {
+    const g = this.gate || {},
+      v = g.videos || [];
+    if (!v.length) return null;
+    const J = g.jump || {},
+      set = v.filter(b => J[b] > 0),
+      used = Math.min(100, set.reduce((s, b) => s + J[b], 0)),
+      rest = v.length - set.length;
+    const each = rest ? (100 - used) / rest : 0,
+      total = set.reduce((s, b) => s + J[b], 0) + each * rest;
+    let r = Math.random() * (total || 1),
+      pick = v[v.length - 1];
+    for (const b of v) {
+      r -= J[b] > 0 ? J[b] : each;
+      if (r < 0) {
+        pick = b;
+        break;
+      }
+    }
+    return pick;
+  },
   // what is unlocked (anything needs an account)
-  get unlocks() { return (this.data && this.data.unlocks) || { follow: false, triple: false }; },
-  tripleOk() { const g = this.gate; return this.loggedIn && (this.unlocks.triple || (!!g && !g.triple && this.unlocks.follow)); },
+  get unlocks() {
+    return this.data && this.data.unlocks || {
+      follow: false,
+      triple: false
+    };
+  },
+  tripleOk() {
+    const g = this.gate;
+    return this.loggedIn && (this.unlocks.triple || !!g && !g.triple && this.unlocks.follow);
+  },
   has(what) {
     if (!this.loggedIn) return false;
-    const u = this.unlocks, g = this.gate || {};
+    const u = this.unlocks,
+      g = this.gate || {};
     // (a super administrator wears every cape and skin without 三连 / following - the user, 2026-11-02)
     if ((what === 'anim' || what === 'static' || what === 'skin') && this.data && this.data.super) return true;
     if (what === 'anim') return !!u.follow;
     if (what === 'static' || what === 'skin') return this.tripleOk();
     if (what === 'online') return (!g.follow || u.follow) && (!g.triple || u.triple);
+    // 鲸鲸: following the UP and 三连 on the video (the user, 2026-11-07; the service itself only asks for following)
+    if (what === 'jing') return this.data && this.data.super || !!u.follow && this.tripleOk();
     return false;
   },
-  allUnlocked() { return this.has('anim') && this.has('static') && this.has('online'); },
+  allUnlocked() {
+    return this.has('anim') && this.has('static') && this.has('online');
+  },
   // 三连 / follow as Bilibili says now (only inside Toy); what changed is returned, the account keeps what was seen
   async checkUnlocks(quiet) {
     if (!this.loggedIn || this.checking) return null;
     this.checking = true;
     try {
       const g = await this.loadGate();
-      if (!(await Toy.ready())) return { inToy: false };
-      const before = { follow: this.unlocks.follow, stat: this.has('static'), online: this.has('online') };
-      let follow = null, triple = null, err = null;
-      try { follow = await Toy.following(); } catch (e) { err = e; }
+      // (not in a phone's own browser: it can't be read there, and asking made Bilibili's page put up a window to open
+      // the app that came back on every visit and every way into multiplayer - logged in by identity code, 11-04/05)
+      if (Toy.phoneWeb || !(await Toy.ready())) return {
+        inToy: false
+      };
+      const before = {
+        follow: this.unlocks.follow,
+        stat: this.has('static'),
+        online: this.has('online'),
+        jing: this.has('jing')
+      };
+      let follow = null,
+        triple = null,
+        err = null;
+      try {
+        follow = await Toy.following();
+      } catch (e) {
+        err = e;
+      }
       if (g.videos && g.videos.length) {
         let te = null;
-        try { const t = await Toy.triple(g.videos); triple = t ? t.all : null; this.tripleParts = t; } catch (e) { te = e; err = err || e; this.tripleParts = null; }
+        try {
+          const t = await Toy.triple(g.videos);
+          triple = t ? t.all : null;
+          this.tripleParts = t;
+        } catch (e) {
+          te = e;
+          err = err || e;
+          this.tripleParts = null;
+        }
         // (what Bilibili answered when it can't be read, to the statistics: the only way to see it from here)
         if (triple === null && typeof Telemetry !== 'undefined' && Telemetry.event) {
-          let raw = ''; try { raw = JSON.stringify({ d: Toy.last.videoActions === undefined ? null : Toy.last.videoActions, how: Toy.last.videoActionsHow, errs: Toy.last.videoActionsErrs }).slice(0, 600); } catch (e) { }
-          Telemetry.event('triple_check', { err: te && te.type, code: te && te.code, msg: String((te && te.message) || '').slice(0, 120), raw, dev: this.device() });
+          let raw = '';
+          try {
+            raw = JSON.stringify({
+              d: Toy.last.videoActions === undefined ? null : Toy.last.videoActions,
+              how: Toy.last.videoActionsHow,
+              errs: Toy.last.videoActionsErrs
+            }).slice(0, 600);
+          } catch (e) {}
+          Telemetry.event('triple_check', {
+            err: te && te.type,
+            code: te && te.code,
+            msg: String(te && te.message || '').slice(0, 120),
+            raw,
+            dev: this.device()
+          });
           Telemetry.flush(false);
         }
       }
-      // 三连 on the AI companion's video (companion.js) - its own unlock
-      let ai = null;
-      if (g.aiVideos && g.aiVideos.length) { try { const t = await Toy.triple(g.aiVideos); ai = t ? t.all : null; } catch (e) { } }
+      // the AI companion's own unlock (the service's ai.videos, empty now): the same video's 三连 since 2026-11-07, kept
+      // in step for the day the service asks for it
+      let ai = triple;
       this.lastCheck = Date.now();
       // only the account's own Bilibili user can take an unlock back: logged in by identity code on a computer whose
       // Bilibili page has nobody (or someone else) logged in, "not following" came back and wiped the follow the
       // account had (feedback 2026-11-01/02: "关注了，换设备用识别码登录显示没关注"). A yes still counts from anyone.
       const own = await this.ownBili();
-      if (!own) { if (follow !== true) follow = null; if (triple !== true) triple = null; if (ai !== true) ai = null; }
-      if (follow !== null || triple !== null || ai !== null) this.took(await this.api('/api/account/unlocks', { follow, triple, ai }));
+      if (!own) {
+        if (follow !== true) follow = null;
+        if (triple !== true) triple = null;
+        if (ai !== true) ai = null;
+      }
+      // (videos: which ones were checked - the service counts a 三连 on its videos of now only)
+      // (tv: the video the 三连 is on; any: this page counts one video as enough - the service takes a "no" from it)
+      const tv = triple === true && this.tripleParts ? this.tripleParts.video : null;
+      if (follow !== null || triple !== null || ai !== null) this.took(await this.api('/api/account/unlocks', {
+        follow,
+        triple,
+        ai,
+        videos: g.videos || [],
+        tv,
+        any: true
+      }));
       const got = [];
       if (!before.stat && this.has('static')) got.push('triple');
       if (!before.follow && this.unlocks.follow) got.push('follow');
       if (!before.online && this.has('online')) got.push('online');
+      if (!before.jing && this.has('jing')) got.push('jing');
       if (got.length && !quiet && typeof game !== 'undefined') unlockCelebrate(game, got);
       // taken back (unfollowed, 三连 undone): locked again; the others in a room see the cape go
-      const lost = (before.follow && !this.unlocks.follow) || (before.stat && !this.has('static')) || (before.online && !this.has('online'));
-      if (lost && typeof game !== 'undefined') { if (game.net && game.net.sendLook) game.net.sendLook(); if (game.ui && game.ui.toast) game.ui.toast('解锁已收回', '重新关注/三连就能恢复'); }
-      return { inToy: true, follow, triple, got, lost, error: err, own };
-    } finally { this.checking = false; }
+      const lost = before.follow && !this.unlocks.follow || before.stat && !this.has('static') || before.online && !this.has('online');
+      // (三连 taken back: most often the 三连 on the old video, which no longer counts - 2026-11-07)
+      const lostT = before.stat && !this.has('static');
+      if (lost && typeof game !== 'undefined') {
+        if (game.net && game.net.sendLook) game.net.sendLook();
+        if (game.ui && game.ui.toast) game.ui.toast('解锁已收回', lostT ? '三连换成了新视频：给新视频三连就能恢复' : '重新关注/三连就能恢复');
+      }
+      return {
+        inToy: true,
+        follow,
+        triple,
+        got,
+        lost,
+        error: err,
+        own
+      };
+    } finally {
+      this.checking = false;
+    }
   },
   // the Bilibili user on this page is the account's own (logged in from here; before that was kept: the same nickname)
   async ownBili() {
-    let p = null; try { p = await Toy.profile(); } catch (e) { return false; }
+    let p = null;
+    try {
+      p = await Toy.profile();
+    } catch (e) {
+      return false;
+    }
     if (!p || !p.toyOpenId) return false;
-    if (this.bili === undefined && this.data && this.data.nick && p.nickname === this.data.nick) { this.bili = p.toyOpenId; this.save(); }
+    if (this.bili === undefined && this.data && this.data.nick && p.nickname === this.data.nick) {
+      this.bili = p.toyOpenId;
+      this.save();
+    }
     return !!this.bili && p.toyOpenId === this.bili;
   },
   // settings follow the account (changed ones go up a few seconds later)
@@ -165,8 +415,14 @@ const Account = {
   settingsChanged() {
     if (!this.loggedIn || typeof game === 'undefined') return;
     clearTimeout(this.setT);
-    this.setT = setTimeout(() => { const s = {}; for (const k of ACCOUNT_SETTINGS) if (game.settings[k] !== undefined) s[k] = game.settings[k]; this.update({ settings: s }).catch(() => { }); }, 4000);
-  },
+    this.setT = setTimeout(() => {
+      const s = {};
+      for (const k of ACCOUNT_SETTINGS) if (game.settings[k] !== undefined) s[k] = game.settings[k];
+      this.update({
+        settings: s
+      }).catch(() => {});
+    }, 4000);
+  }
 };
 // the settings that follow the account to other devices (not the ones about this device's screen or speed)
 // (not the touch buttons' layout: kept in screen pixels of one device, a tablet's put a phone's off the screen -
@@ -174,31 +430,73 @@ const Account = {
 const ACCOUNT_SETTINGS = ['fov', 'sens', 'volume', 'gamma', 'bobbing', 'advTooltips', 'keys', 'autoJump', 'invertY', 'subtitles', 'chatOpacity', 'tutorialOff', 'minimap', 'deathMarker', 'recipeHints', 'vibrate', 'quickChat'];
 Account.load();
 // (each visit: follow / 三连 checked again once the page is up, quietly - unless it was a moment ago)
-setTimeout(() => { if (Account.loggedIn && Date.now() - Account.lastCheck > 5000) Account.checkUnlocks(true).catch(() => { }); }, 3000);
+// A page opened fresh within 15 minutes of 去三连 / 去关注 (toy.js openNative's mark: the page before was killed behind
+// the video's page, or this is a second one from its game entry - 11-07): checked aloud, so what was done there shows
+setTimeout(() => {
+  if (!Account.loggedIn) return;
+  let nav = null;
+  try {
+    nav = JSON.parse(localStorage.getItem('mcjs-nav') || 'null');
+    localStorage.removeItem('mcjs-nav');
+  } catch (e) {}
+  const back = !!(nav && Date.now() - nav.t < 15 * 60e3);
+  if (back && typeof Telemetry !== 'undefined' && Telemetry.count) Telemetry.count('nav_reopen');
+  // (a check already going - the login's own, quiet - is waited out first)
+  const go = n => {
+    if (Account.checking && n < 6) {
+      setTimeout(() => go(n + 1), 2000);
+      return;
+    }
+    Account.checkUnlocks(false).catch(() => {});
+  };
+  if (back) go(0);else if (Date.now() - Account.lastCheck > 5000) Account.checkUnlocks(true).catch(() => {});
+}, 3000);
 // the rooms: this account's room key and token instead of the browser's own key
 (() => {
   const key = RoomService.key.bind(RoomService);
-  RoomService.key = () => (Account.loggedIn && (Account.data.roomKey || Account.data.room_key) ? Account.data.roomKey || Account.data.room_key : key());
+  RoomService.key = () => Account.loggedIn && Account.data.roomKey ? Account.data.roomKey : key();
   const api = RoomService.api.bind(RoomService);
   RoomService.api = async function (path, body) {
     if (!Account.token || !body) return api(path, body); // (what is only looked at needs no token)
     let r;
-    try { r = await fetch(this.base() + path, { method: 'POST', body: JSON.stringify({ ...body, _t: Account.token }) }); }
-    catch (e) { throw new Error('连不上联机服务器'); }
-    const j = await r.json().catch(() => ({ error: '联机服务器没有回应' }));
-    if (!r.ok || (j && j.error)) throw Object.assign(new Error((j && j.error) || 'HTTP ' + r.status), { gate: !!(j && j.gate) });
+    try {
+      r = await fetch(this.base() + path, {
+        method: 'POST',
+        body: JSON.stringify({
+          ...body,
+          _t: Account.token
+        })
+      });
+    } catch (e) {
+      throw new Error('游戏正在更新中…请稍后');
+    }
+    const j = await r.json().catch(() => ({
+      error: '游戏正在更新中…请稍后'
+    }));
+    if (!r.ok || j && j.error) throw Object.assign(new Error(j && j.error || 'HTTP ' + r.status), {
+      gate: !!(j && j.gate)
+    });
     return j;
   };
   const save = Game.prototype.saveSettings;
-  Game.prototype.saveSettings = function () { save.call(this); Account.settingsChanged(); };
+  Game.prototype.saveSettings = function () {
+    save.call(this);
+    Account.settingsChanged();
+  };
 })();
 
 // ---- drawing helpers for the account screens ----
 // a rounded dark card with a gold or grey edge
 function drawCard(c, x, y, w, h, gold) {
-  c.fillStyle = 'rgba(0,0,0,0.55)'; c.fillRect(x, y, w, h);
-  c.strokeStyle = gold ? '#E8B830' : '#555555'; c.lineWidth = 1; c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-  if (gold) { c.fillStyle = 'rgba(232,184,48,0.10)'; c.fillRect(x + 1, y + 1, w - 2, h - 2); }
+  c.fillStyle = 'rgba(0,0,0,0.55)';
+  c.fillRect(x, y, w, h);
+  c.strokeStyle = gold ? '#E8B830' : '#555555';
+  c.lineWidth = 1;
+  c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  if (gold) {
+    c.fillStyle = 'rgba(232,184,48,0.10)';
+    c.fillRect(x + 1, y + 1, w - 2, h - 2);
+  }
 }
 // little pixel icons: thumb up, coin, star (三连), heart-plus (follow), check, lock
 const ICON_PIX = {
@@ -207,113 +505,302 @@ const ICON_PIX = {
   star: ['...##...', '...##...', '########', '.######.', '..####..', '.##..##.', '.#....#.', '........'],
   follow: ['.##..##.', '########', '########', '########', '.######.', '..####..', '...##...', '........'],
   check: ['.......#', '......##', '.....##.', '#...##..', '##.##...', '.###....', '..#.....', '........'],
-  lock: ['..####..', '.#....#.', '.#....#.', '########', '###..###', '###..###', '########', '########'],
+  lock: ['..####..', '.#....#.', '.#....#.', '########', '###..###', '###..###', '########', '########']
 };
 function drawIcon(c, name, x, y, s, col) {
-  const p = ICON_PIX[name]; if (!p) return;
+  const p = ICON_PIX[name];
+  if (!p) return;
   c.fillStyle = col;
   for (let j = 0; j < 8; j++) for (let i = 0; i < 8; i++) if (p[j][i] === '#') c.fillRect(x + i * s, y + j * s, s, s);
 }
 // a short burst on screen when something is unlocked (a sound, a gold toast, sparks)
 function unlockCelebrate(g, got) {
-  const names = { triple: '静态披风和自定义皮肤', follow: '动态披风', online: '联机' };
+  const names = {
+    triple: '静态披风和自定义皮肤',
+    follow: '动态披风',
+    online: '联机',
+    jing: 'AI 伙伴' + (typeof Companion !== 'undefined' && Companion.name || '鲸鲸')
+  };
   Sound.ev && Sound.ev('entity.player.levelup', null, 0.8, 1);
-  g.ui.message && g.ui.message('解锁了：' + got.map((k) => names[k]).join('、') + '！', '#FFD24A');
+  g.ui.message && g.ui.message('解锁了：' + got.map(k => names[k]).join('、') + '！', '#FFD24A');
   UnlockSparks.start(got);
 }
 const UnlockSparks = {
-  t0: 0, list: [], text: '',
+  t0: 0,
+  list: [],
+  text: '',
   start(got) {
-    this.t0 = performance.now(); this.list = [];
-    this.text = '解锁：' + got.map((k) => ({ triple: '静态披风 + 自定义皮肤', follow: '动态披风', online: '联机' })[k]).join(' · ');
-    for (let i = 0; i < 60; i++) this.list.push({ a: Math.random() * Math.PI * 2, v: 40 + Math.random() * 90, c: ['#FFD24A', '#FFF2B0', '#FB7299', '#7FD8FF'][i % 4] });
+    this.t0 = performance.now();
+    this.list = [];
+    this.text = '解锁：' + got.map(k => ({
+      triple: '静态披风 + 自定义皮肤',
+      follow: '动态披风',
+      online: '联机',
+      jing: '鲸鲸'
+    })[k]).join(' · ');
+    for (let i = 0; i < 60; i++) this.list.push({
+      a: Math.random() * Math.PI * 2,
+      v: 40 + Math.random() * 90,
+      c: ['#FFD24A', '#FFF2B0', '#FB7299', '#7FD8FF'][i % 4]
+    });
   },
   draw(ui) {
     const t = (performance.now() - this.t0) / 1000;
     if (!this.t0 || t > 2.6) return;
-    const c = ui.ctx, cx = ui.w / 2, cy = ui.h / 2 - 20, f = Math.min(1, t * 4) * Math.min(1, (2.6 - t) * 2);
-    c.save(); c.globalAlpha = f;
-    for (const p of this.list) { const r = p.v * t, y = cy + Math.sin(p.a) * r + 30 * t * t; c.fillStyle = p.c; c.fillRect(Math.round(cx + Math.cos(p.a) * r), Math.round(y), 2, 2); }
+    const c = ui.ctx,
+      cx = ui.w / 2,
+      cy = ui.h / 2 - 20,
+      f = Math.min(1, t * 4) * Math.min(1, (2.6 - t) * 2);
+    c.save();
+    c.globalAlpha = f;
+    for (const p of this.list) {
+      const r = p.v * t,
+        y = cy + Math.sin(p.a) * r + 30 * t * t;
+      c.fillStyle = p.c;
+      c.fillRect(Math.round(cx + Math.cos(p.a) * r), Math.round(y), 2, 2);
+    }
     const w = Font.width(this.text) + 24;
-    c.fillStyle = 'rgba(40,28,0,0.85)'; c.fillRect(cx - w / 2, cy - 12, w, 22);
-    c.strokeStyle = '#E8B830'; c.strokeRect(cx - w / 2 + 0.5, cy - 11.5, w - 1, 21);
+    c.fillStyle = 'rgba(40,28,0,0.85)';
+    c.fillRect(cx - w / 2, cy - 12, w, 22);
+    c.strokeStyle = '#E8B830';
+    c.strokeRect(cx - w / 2 + 0.5, cy - 11.5, w - 1, 21);
     Font.center(c, this.text, cx, cy - 4, '#FFD24A');
     c.restore();
-  },
+  }
 };
 
-// ---- 登录：存档密码（识别码 / 离线账号 / B站入口已移除，防护全部在密码界面） ----
-// 游戏启动时 cloud-github.js 已先验证密码并载入云端存档；这里是游戏内再次唤起的登录入口。
+// ---- 登录: Bilibili (gold, recommended) / identity code / offline ----
+// 登录界面：输存档密码（云端存档的唯一凭证）。识别码 / 离线账号 / B站登录都已移除。
 class LoginScreen extends MenuScreen {
   constructor(game, next, offline) {
-    super(game, '登录'); this.next = next; this.offline = offline; this.pauses = false; this.titleY = 22; this.note = ''; this.noteColor = '#A0A0A0'; this.busy = false;
+    super(game, '登录 · 云端存档');
+    this.next = next;
+    this.offline = offline;
+    this.pauses = false;
+    this.titleY = 22;
+    this.note = '';
+    this.noteColor = '#A0A0A0';
+    this.busy = false;
   }
-  say(t, bad) { this.note = t; this.noteColor = bad ? '#FF6060' : '#A0A0A0'; }
-  done() { const n = this.next; this.next = null; if (n) n(); else this.game.ui.open(new TitleScreen(this.game)); }
+  say(t, bad) {
+    this.note = t;
+    this.noteColor = bad ? '#FF6060' : '#A0A0A0';
+  }
+  done() {
+    const n = this.next;
+    this.next = null;
+    if (n) n();
+    else this.game.ui.open(new TitleScreen(this.game));
+  }
   layout() {
-    const u = this.game.ui, cx = u.w / 2, y = Math.max(70, Math.floor(u.h / 2 - 40));
-    this.widgets = [
-      { x: cx - 110, y, w: 220, h: 24, gold: true, label: () => (this.busy ? '正在验证…' : '输入存档密码登录'), enabled: !this.busy, onClick: () => this.login() },
-      { x: cx - 60, y: y + 34, w: 120, h: 18, label: '返回', enabled: !this.busy, onClick: () => this.done() },
-    ];
+    const u = this.game.ui,
+      cx = u.w / 2,
+      y = Math.max(70, Math.floor(u.h / 2 - 40));
+    this.widgets = [{
+      x: cx - 110,
+      y,
+      w: 220,
+      h: 24,
+      gold: true,
+      label: () => (this.busy ? '正在验证…' : '输入存档密码登录'),
+      enabled: !this.busy,
+      onClick: () => this.login()
+    }];
   }
   async login() {
-    if (typeof CloudGitHub === 'undefined') { this.say('云存档模块未加载', true); this.layout(); return; }
-    this.busy = true; this.say('请在弹出的密码框中输入存档密码…'); this.layout();
-    try { await CloudGitHub.promptLogin(); this.busy = false; this.done(); }
-    catch (e) { this.busy = false; this.say(e.message || '登录失败', true); this.layout(); }
+    if (this.busy) return;
+    this.busy = true;
+    this.say('请在弹出的窗口里输入存档密码');
+    this.layout();
+    try {
+      if (window.CloudGitHub && window.CloudGitHub.promptLogin) await window.CloudGitHub.promptLogin();
+      this.busy = false;
+      this.layout();
+      if (Account.loggedIn) this.done();
+      else this.say('登录未完成', true);
+    } catch (e) {
+      this.busy = false;
+      this.say(e && e.message === 'BAD_PASSWORD' ? '密码错误，请重试' : (e && e.message || String(e)), true);
+      this.layout();
+    }
   }
   drawExtra(ui) {
-    const c = ui.ctx, cx = ui.w / 2, y = Math.max(70, Math.floor(ui.h / 2 - 40));
-    const lines = ['本游戏存档只保存在云端：进入自动加载、游玩自动保存', '输入存档密码即可登录；登录态只在本页有效，刷新需重新验证'];
+    const c = ui.ctx,
+      cx = ui.w / 2,
+      y = Math.max(70, Math.floor(ui.h / 2 - 40));
+    const lines = ['存档只保存在云端：进入自动加载、游玩自动保存', '换设备、换浏览器，输入同一个密码就能接着玩'];
     lines.forEach((t, i) => Font.center(c, fitText(t, ui.w - 8), cx, y - 34 + i * 11, i ? '#A0A0A0' : '#FFFFFF'));
-    if (this.note) Font.center(c, fitText(this.note, ui.w - 8), cx, y + 70, this.noteColor);
+    Font.center(c, fitText('密码由站点管理员告知，不需要 GitHub token，也没有识别码或离线账号', ui.w - 8), cx, y - 12, '#7ED321');
+    if (this.note) Font.center(c, fitText(this.note, ui.w - 8), cx, y + 62, this.noteColor);
     if (typeof GAME_BUILD !== 'undefined') Font.center(c, '版本 ' + GAME_BUILD, cx, ui.h - 12, '#707070');
   }
-  onEsc() { this.done(); }
+  onEsc() {
+    /* 密码是唯一入口，不能靠 ESC 跳过 */
+  }
 }
-
+// ---- 账号 (选项)：云端玩家，改密码 / 退出登录 ----
 // ---- 账号 (选项): the game name, unlocks, the identity code, logging out, deleting ----
 class AccountScreen extends FormScreen {
-  constructor(game, parent) { super(game, '账号', parent); this.newName = Account.name; this.confirm = null; Account.refresh().then(() => { this.newName = Account.name; if (this.game.ui.screen === this) this.layout(); }); Account.loadGate(); }
+  constructor(game, parent) {
+    super(game, '账号', parent);
+    this.newName = Account.name;
+    this.confirm = null;
+    Account.refresh().then(() => {
+      this.newName = Account.name;
+      if (this.game.ui.screen === this) this.layout();
+    });
+    Account.loadGate();
+  }
   layout() {
-    const u = this.game.ui, cx = u.w / 2, g = this.game;
-    this.fields = {}; this.widgets = [];
+    const u = this.game.ui,
+      cx = u.w / 2,
+      g = this.game;
+    this.fields = {};
+    this.widgets = [];
     if (!Account.loggedIn) {
-      this.widgets.push(
-        { x: cx - 100, y: 60, w: 200, h: 24, gold: true, label: '登录', onClick: () => g.ui.open(new LoginScreen(g, () => g.ui.open(new AccountScreen(g, this.parent)))) },
-        { x: cx - 100, y: u.h - 30, w: 200, h: 20, label: '完成', onClick: () => this.back() },
-      );
+      this.widgets.push({
+        x: cx - 100,
+        y: 60,
+        w: 200,
+        h: 24,
+        gold: true,
+        label: '登录',
+        onClick: () => g.ui.open(new LoginScreen(g, () => g.ui.open(new AccountScreen(g, this.parent))))
+      }, {
+        x: cx - 100,
+        y: u.h - 30,
+        w: 200,
+        h: 20,
+        label: '完成',
+        onClick: () => this.back()
+      });
       return;
     }
     // (the game name is the Bilibili name: shown, not changed here - drawExtra)
     const confirmDel = this.confirm === 'del';
-    this.widgets.push(
-      { x: cx + 58, y: 52, w: 92, h: 20, gold: !Account.allUnlocked(), label: Account.allUnlocked() ? '已全部解锁' : '解锁…', onClick: () => g.ui.open(new UnlockScreen(g, this)) },
-      { x: cx - 150, y: 112, w: 148, h: 20, label: '更换存档密码', tip: ['只需在入口重新输入新密码，旧密码立即失效', '存档仍在云端，不会丢失'], onClick: () => { if (typeof CloudGitHub !== 'undefined') CloudGitHub.promptLogin(); } },
-      { x: cx + 2, y: 112, w: 148, h: 20, label: '皮肤和装饰…', gold: true, onClick: () => g.ui.open(new WardrobeScreen(g, this)) },
-      { x: cx - 150, y: 136, w: 148, h: 20, label: '退出登录', onClick: async () => { await Account.logout(); this.say('已退出登录（刷新页面后需重新输入密码）'); this.layout(); } },
-      { x: cx + 2, y: 136, w: 148, h: 20, label: confirmDel ? '再点一次：清空云端存档' : '清空云端存档', color: confirmDel ? '#FF6060' : undefined, tip: ['删除云端的存档，不能恢复', '本地不会有存档'], onClick: () => this.del() },
-      ...(!Companion.shown ? [] : [{ x: cx - 150, y: 184, w: 300, h: 20, label: 'AI 伙伴…', tip: ['会聊天、懂你在游戏里做什么的 AI 小伙伴（用你自己的 DeepSeek 密钥）'], onClick: () => g.ui.open(new CompanionScreen(g, this)) }]),
-      { x: cx - 150, y: 160, w: 148, h: 20, label: '诊断', tip: ['显示 B站 返回的原始数据（排查问题用）'], onClick: () => g.ui.open(new ToyDiagScreen(g, this)) },
-      ...(Account.data.super ? [{ x: cx + 2, y: 160, w: 148, h: 20, gold: true, label: '管理员…', tip: ['临时昵称、全服公告、昵称颜色、管理员披风'], onClick: () => g.ui.open(new AdminScreen(g, this)) }] : []),
-      { x: cx - 100, y: u.h - 30, w: 200, h: 20, label: '完成', onClick: () => this.back() },
-    );
+    this.widgets.push({
+      x: cx + 58,
+      y: 52,
+      w: 92,
+      h: 20,
+      gold: !Account.allUnlocked(),
+      label: Account.allUnlocked() ? '已全部解锁' : '解锁…',
+      onClick: () => g.ui.open(new UnlockScreen(g, this))
+    }, {
+      x: cx - 150,
+      y: 112,
+      w: 148,
+      h: 20,
+      label: '更换存档密码',
+      tip: ['打开密码框，用新密码登录', '密码本身就是云存档的凭证：成功登录即表示密码有效'],
+      onClick: () => this.reset()
+    }, {
+      x: cx + 2,
+      y: 112,
+      w: 148,
+      h: 20,
+      label: '皮肤和装饰…',
+      gold: true,
+      onClick: () => g.ui.open(new WardrobeScreen(g, this))
+    }, {
+      x: cx - 150,
+      y: 136,
+      w: 148,
+      h: 20,
+      label: '退出登录',
+      onClick: async () => {
+        await Account.logout();
+        this.say('已退出登录');
+        this.layout();
+      }
+    }, {
+      x: cx + 2,
+      y: 136,
+      w: 148,
+      h: 20,
+      label: confirmDel ? '再点一次：退出' : '退出并清理',
+      color: confirmDel ? '#FF6060' : undefined,
+      tip: ['清空本机内存里的登录态与登录密码', '云端存档不受影响，下次输入密码照常继续'],
+      onClick: () => this.del()
+    }, ...(!Companion.shown ? [] : [{
+      x: cx - 150,
+      y: 184,
+      w: 300,
+      h: 20,
+      label: 'AI 伙伴…',
+      tip: ['会聊天、懂你在游戏里做什么的 AI 小伙伴（全服免费，每天有次数）'],
+      onClick: () => g.ui.open(new CompanionScreen(g, this))
+    }]), {
+      x: cx - 150,
+      y: 160,
+      w: 148,
+      h: 20,
+      label: '云端状态',
+      tip: ['查看云端存档的同步状态（排查问题用）'],
+      onClick: () => {
+        const st = window.CloudGitHub ? window.CloudGitHub.statusText() : '云端存档模块未加载';
+        this.say(st);
+        this.layout();
+      }
+    }, ...(Account.data.super ? [{
+      x: cx + 2,
+      y: 160,
+      w: 148,
+      h: 20,
+      gold: true,
+      label: '管理员…',
+      tip: ['临时昵称、全服公告、昵称颜色、管理员披风'],
+      onClick: () => g.ui.open(new AdminScreen(g, this))
+    }] : []), {
+      x: cx - 100,
+      y: u.h - 30,
+      w: 200,
+      h: 20,
+      label: '完成',
+      onClick: () => this.back()
+    });
+  }
+  async reset() {
+    // 更换存档密码：走云端密码框重新验证（验证通过才记住新密码）
+    try {
+      if (window.CloudGitHub && window.CloudGitHub.promptLogin) await window.CloudGitHub.promptLogin();
+      this.say(Account.loggedIn ? '密码已更新，存档已从云端载入' : '密码验证未通过');
+    } catch (e) {
+      this.say(e && e.message === 'BAD_PASSWORD' ? '密码错误' : (e && e.message || String(e)), true);
+    }
+    this.layout();
   }
   async del() {
-    if (this.confirm !== 'del') { this.confirm = 'del'; this.layout(); return; }
-    // 云端存档清理：由站点管理员操作；本界面不再调用已下线的账号服务器。
-    this.say('如需清空云端存档，请联系站点管理员', true);
-    this.confirm = null; this.layout();
+    if (this.confirm !== 'del') {
+      this.confirm = 'del';
+      this.layout();
+      return;
+    }
+    try {
+      try { localStorage.removeItem('opusmc_remastered_password'); } catch (e) {}
+      Account.token = '';
+      Account.data = null;
+      Account.offline = false;
+      this.say('已退出并清空本机登录信息（云端存档未受影响）');
+    } catch (e) {
+      this.say(e.message, true);
+    }
+    this.confirm = null;
+    this.layout();
   }
   drawExtra(ui) {
-    const c = ui.ctx, cx = ui.w / 2;
-    if (!Account.loggedIn) { Font.center(c, '未登录：请在入口输入存档密码', cx, 40, '#A0A0A0'); return; }
+    const c = ui.ctx,
+      cx = ui.w / 2;
+    if (!Account.loggedIn) {
+      Font.center(c, Account.offline ? '现在是离线游玩：只能玩单人游戏' : '还没有登录', cx, 40, '#A0A0A0');
+      return;
+    }
     this.drawFields(ui);
-    const d = Account.data, u = Account.unlocks;
-    Font.draw(c, '玩家：' + Account.name, cx - 150, 52, '#FFFFFF');
-    Font.draw(c, '云端存档账号，登录态仅在本页有效', cx - 150, 64, '#808080');
-    Font.draw(c, `云端玩家　　注册于 ${new Date(d.created).toLocaleDateString()}`, cx - 150, 80, '#A0A0A0');
+    const d = Account.data,
+      u = Account.unlocks;
+    Font.draw(c, '游戏名：' + Account.name, cx - 150, 52, '#FFFFFF');
+    Font.draw(c, '就是 B站名，B站改名后会跟着变', cx - 150, 64, '#808080');
+    Font.draw(c, `云端存档：${window.CloudGitHub ? window.CloudGitHub.statusText() : '未启用'}`, cx - 150, 80, '#A0A0A0');
     const st = (ok, t) => (ok ? '✓ ' : '✗ ') + t;
     Font.draw(c, [st(Account.tripleOk(), '三连'), st(u.follow, '关注'), st(Account.has('online'), '联机')].join('　'), cx - 150, 94, '#E0E0E0');
   }
@@ -324,157 +811,544 @@ const ADMIN_COLORS = ['', '#FFAA00', '#FFFF55', '#55FF55', '#55FFFF', '#5555FF',
 // 冻结名单 (administrators): the accounts the service froze for a severe word (moderation.js) - who, when, where, the
 // words - each with 解冻 (the account, its address and its network let back in)
 class FrozenScreen extends MenuScreen {
-  constructor(game, parent) { super(game, '冻结名单'); this.parent = parent; this.pauses = false; this.titleY = 12; this.list = null; this.page = 0; this.note = ''; this.noteColor = '#80FF80'; this.load(); }
+  constructor(game, parent) {
+    super(game, '冻结名单');
+    this.parent = parent;
+    this.pauses = false;
+    this.titleY = 12;
+    this.list = null;
+    this.page = 0;
+    this.note = '';
+    this.noteColor = '#80FF80';
+    this.load();
+  }
   async load() {
-    try { const j = await Account.api('/api/account/admin/frozen', {}); this.list = j.list || []; this.hours = j.hours; } catch (e) { this.list = []; this.say(e.message, true); }
+    try {
+      const j = await Account.api('/api/account/admin/frozen', {});
+      this.list = j.list || [];
+      this.hours = j.hours;
+    } catch (e) {
+      this.list = [];
+      this.say(e.message, true);
+    }
     if (this.game.ui.screen === this) this.layout();
   }
-  say(t, bad) { this.note = t; this.noteColor = bad ? '#FF6060' : '#80FF80'; }
-  rows() { return Math.max(2, Math.floor((this.game.ui.h - 90) / 30)); }
+  say(t, bad) {
+    this.note = t;
+    this.noteColor = bad ? '#FF6060' : '#80FF80';
+  }
+  rows() {
+    return Math.max(2, Math.floor((this.game.ui.h - 90) / 30));
+  }
   layout() {
-    const u = this.game.ui, cx = u.w / 2, L = this.list || [], n = this.rows(), pages = Math.max(1, Math.ceil(L.length / n));
+    const u = this.game.ui,
+      cx = u.w / 2,
+      L = this.list || [],
+      n = this.rows(),
+      pages = Math.max(1, Math.ceil(L.length / n));
     this.page = clamp(this.page, 0, pages - 1);
-    this.widgets = L.slice(this.page * n, this.page * n + n).map((f, i) => ({ x: cx + 116, y: 34 + i * 30, w: 44, h: 18, label: '解冻', onClick: () => this.unfreeze(f) }));
-    if (pages > 1) this.widgets.push(
-      { x: cx - 160, y: u.h - 30, w: 50, h: 20, label: '<', enabled: this.page > 0, onClick: () => { this.page--; this.layout(); } },
-      { x: cx + 110, y: u.h - 30, w: 50, h: 20, label: '>', enabled: this.page < pages - 1, onClick: () => { this.page++; this.layout(); } },
-    );
-    this.widgets.push({ x: cx - 100, y: u.h - 30, w: 200, h: 20, label: '完成', onClick: () => this.game.ui.open(this.parent) });
+    this.widgets = L.slice(this.page * n, this.page * n + n).map((f, i) => ({
+      x: cx + 116,
+      y: 34 + i * 30,
+      w: 44,
+      h: 18,
+      label: '解冻',
+      onClick: () => this.unfreeze(f)
+    }));
+    if (pages > 1) this.widgets.push({
+      x: cx - 160,
+      y: u.h - 30,
+      w: 50,
+      h: 20,
+      label: '<',
+      enabled: this.page > 0,
+      onClick: () => {
+        this.page--;
+        this.layout();
+      }
+    }, {
+      x: cx + 110,
+      y: u.h - 30,
+      w: 50,
+      h: 20,
+      label: '>',
+      enabled: this.page < pages - 1,
+      onClick: () => {
+        this.page++;
+        this.layout();
+      }
+    });
+    this.widgets.push({
+      x: cx - 100,
+      y: u.h - 30,
+      w: 200,
+      h: 20,
+      label: '完成',
+      onClick: () => this.game.ui.open(this.parent)
+    });
+    this.widgets.push({
+      x: cx + 96,
+      y: 6,
+      w: 64,
+      h: 18,
+      label: '封禁玩家…',
+      gold: true,
+      tip: ['按游戏名全服封禁一个玩家（不在线也可以）'],
+      onClick: () => this.game.ui.open(new BanNameScreen(this.game, this))
+    });
   }
   async unfreeze(f) {
-    try { const j = await Account.api('/api/account/admin/unfreeze', { id: f.id }); this.list = j.list || []; this.say('已解冻 ' + f.name + '（账号和 IP 都放开了）'); }
-    catch (e) { this.say(e.message, true); }
+    try {
+      const j = await Account.api('/api/account/admin/unfreeze', {
+        id: f.id
+      });
+      this.list = j.list || [];
+      this.say('已解冻 ' + f.name + '（账号和 IP 都放开了）');
+    } catch (e) {
+      this.say(e.message, true);
+    }
     this.layout();
   }
   drawExtra(ui) {
-    const c = ui.ctx, cx = ui.w / 2, L = this.list, n = this.rows();
-    if (!L) { Font.center(c, '正在读取…', cx, 60, '#A0A0A0'); return; }
+    const c = ui.ctx,
+      cx = ui.w / 2,
+      L = this.list,
+      n = this.rows();
+    if (!L) {
+      Font.center(c, '正在读取…', cx, 60, '#A0A0A0');
+      return;
+    }
     if (!L.length) Font.center(c, '没有被冻结的账号', cx, 60, '#A0A0A0');
-    const t2 = (ms) => { const d = new Date(ms); return `${d.getMonth() + 1}-${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+    const t2 = ms => {
+      const d = new Date(ms);
+      return `${d.getMonth() + 1}-${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    };
     L.slice(this.page * n, this.page * n + n).forEach((f, i) => {
       const y = 34 + i * 30;
-      c.fillStyle = 'rgba(0,0,0,0.35)'; c.fillRect(cx - 160, y - 2, 320, 28);
+      c.fillStyle = 'rgba(0,0,0,0.35)';
+      c.fillRect(cx - 160, y - 2, 320, 28);
       Font.draw(c, fitText(f.name || f.id, 140), cx - 157, y + 1, '#FFFFFF');
       Font.draw(c, fitText(`${t2(f.at)} · ${f.why}${f.banned ? ' · IP 封禁中' : ''}`, 270), cx - 157, y + 12, '#A0A0A0');
       if (f.text) Font.draw(c, fitText('原话：' + f.text, 270), cx - 157, y + 21, '#FF8080');
     });
     if (this.note) Font.center(c, fitText(this.note, ui.w - 8), cx, ui.h - 42, this.noteColor);
   }
-  onEsc() { this.game.ui.open(this.parent); }
+  onEsc() {
+    this.game.ui.open(this.parent);
+  }
+}
+// 封禁玩家 (from 冻结名单, the user 11-08): anyone by their game name, online or not - the account frozen, its address
+// banned too when it is online; lifted with 解冻
+class BanNameScreen extends FormScreen {
+  constructor(game, parent) {
+    super(game, '全服封禁玩家', parent);
+    this.who = '';
+    this.why = '';
+    this.busy = false;
+    this.sure = false;
+  }
+  layout() {
+    const u = this.game.ui,
+      cx = u.w / 2;
+    this.fields = {};
+    this.addField('who', cx - 100, 60, 200, '玩家的游戏名（和游戏里显示的一样）', 32, v => {
+      this.sure = false;
+      return v.replace(/[\s"'\\§]/g, '').slice(0, 32);
+    });
+    this.addField('why', cx - 100, 104, 200, '原因（可以不写，只有管理员看得到）', 60, v => v.slice(0, 60));
+    this.widgets = [{
+      x: cx - 100,
+      y: 134,
+      w: 200,
+      h: 20,
+      gold: true,
+      label: () => this.busy ? '…' : this.sure ? '确定封禁「' + this.who + '」？' : '封禁',
+      enabled: !this.busy,
+      onClick: () => this.submit()
+    }, {
+      x: cx - 100,
+      y: u.h - 30,
+      w: 200,
+      h: 20,
+      label: '返回',
+      onClick: () => this.back()
+    }];
+  }
+  async submit() {
+    const name = this.who.trim();
+    if (!name) {
+      this.say('先写玩家的游戏名', true);
+      this.focus('who');
+      return;
+    }
+    if (!this.sure) {
+      this.sure = true;
+      this.say('账号会被冻结、请出所有房间，再点一次确定', false);
+      this.layout();
+      return;
+    }
+    this.sure = false;
+    this.busy = true;
+    this.game.ui.hideInput();
+    this.layout();
+    try {
+      const j = await Account.api('/api/account/admin/freeze', {
+        name,
+        why: this.why.trim()
+      });
+      this.say(`已封禁 ${j.name}：账号冻结${j.ip ? `，IP 封禁 ${j.hours} 小时` : '（现在不在线，没有封 IP）'}`);
+      this.who = '';
+      this.why = '';
+    } catch (e) {
+      this.say(e.message, true);
+    }
+    this.busy = false;
+    this.layout();
+  }
+  drawExtra(ui) {
+    this.drawFields(ui);
+  }
+  back() {
+    this.game.ui.hideInput();
+    if (this.parent && this.parent.load) this.parent.load();
+    this.game.ui.open(this.parent);
+  }
 }
 class AdminScreen extends FormScreen {
-  constructor(game, parent) { super(game, '管理员', parent); this.nick = Account.data.tempNick || ''; this.notice = ''; this.busy = null; }
+  constructor(game, parent) {
+    super(game, '管理员', parent);
+    this.nick = Account.data.tempNick || '';
+    this.notice = '';
+    this.busy = null;
+  }
   layout() {
-    const u = this.game.ui, cx = u.w / 2, g = this.game;
-    this.fields = {}; this.widgets = [];
-    this.addField('nick', cx - 150, 52, 196, '临时昵称（联机时用这个名字；留空：用 B站名）', 16, (v) => v.replace(/[\s"'\\§]/g, '').slice(0, 16));
-    this.widgets.push({ x: cx + 50, y: 52, w: 48, h: 20, gold: true, label: () => (this.busy === 'nick' ? '…' : '使用'), enabled: !this.busy, onClick: () => this.setNick(this.nick) });
-    this.widgets.push({ x: cx + 102, y: 52, w: 48, h: 20, label: '清除', enabled: !this.busy && !!Account.data.tempNick, onClick: () => this.setNick('') });
-    this.addField('notice', cx - 150, 96, 248, '全服公告（单人和联机的所有人都会在聊天框看到）', 100, (v) => v.slice(0, 100));
-    this.widgets.push({ x: cx + 102, y: 96, w: 48, h: 20, gold: true, label: () => (this.busy === 'notice' ? '…' : '发布'), enabled: !this.busy, onClick: () => this.announce() });
+    const u = this.game.ui,
+      cx = u.w / 2,
+      g = this.game;
+    this.fields = {};
+    this.widgets = [];
+    this.addField('nick', cx - 150, 52, 196, '临时昵称（联机时用这个名字；留空：用 B站名）', 16, v => v.replace(/[\s"'\\§]/g, '').slice(0, 16));
+    this.widgets.push({
+      x: cx + 50,
+      y: 52,
+      w: 48,
+      h: 20,
+      gold: true,
+      label: () => this.busy === 'nick' ? '…' : '使用',
+      enabled: !this.busy,
+      onClick: () => this.setNick(this.nick)
+    });
+    this.widgets.push({
+      x: cx + 102,
+      y: 52,
+      w: 48,
+      h: 20,
+      label: '清除',
+      enabled: !this.busy && !!Account.data.tempNick,
+      onClick: () => this.setNick('')
+    });
+    this.addField('notice', cx - 150, 96, 248, '全服公告（单人和联机的所有人都会在聊天框看到）', 100, v => v.slice(0, 100));
+    this.widgets.push({
+      x: cx + 102,
+      y: 96,
+      w: 48,
+      h: 20,
+      gold: true,
+      label: () => this.busy === 'notice' ? '…' : '发布',
+      enabled: !this.busy,
+      onClick: () => this.announce()
+    });
     // the name's colour: a row of swatches (the first: none)
-    this.swatches = ADMIN_COLORS.map((col, i) => ({ x: cx - 150 + i * 21, y: 136, w: 19, h: 19, label: '', col, tip: [col ? '昵称颜色 ' + col : '不用颜色（白色）'], enabled: !this.busy, onClick: () => this.setColor(col) }));
+    this.swatches = ADMIN_COLORS.map((col, i) => ({
+      x: cx - 150 + i * 21,
+      y: 136,
+      w: 19,
+      h: 19,
+      label: '',
+      col,
+      tip: [col ? '昵称颜色 ' + col : '不用颜色（白色）'],
+      enabled: !this.busy,
+      onClick: () => this.setColor(col)
+    }));
     this.widgets.push(...this.swatches);
-    this.widgets.push({ x: cx - 150, y: 166, w: 300, h: 20, gold: true, label: '管理员披风（动态）…', tip: ['在 皮肤和装饰 里选「管理员」'], onClick: () => g.ui.open(new WardrobeScreen(g, this)) });
-    this.widgets.push({ x: cx - 150, y: 190, w: 300, h: 20, label: '冻结名单…', tip: ['写了严重违规内容被自动冻结的账号', '可以看原话和时间，误伤了可以解冻'], onClick: () => g.ui.open(new FrozenScreen(g, this)) });
-    this.widgets.push({ x: cx - 100, y: u.h - 30, w: 200, h: 20, label: '完成', onClick: () => this.back() });
+    this.widgets.push({
+      x: cx - 150,
+      y: 166,
+      w: 300,
+      h: 20,
+      gold: true,
+      label: '管理员披风（动态）…',
+      tip: ['在 皮肤和装饰 里选「管理员」'],
+      onClick: () => g.ui.open(new WardrobeScreen(g, this))
+    });
+    this.widgets.push({
+      x: cx - 150,
+      y: 190,
+      w: 300,
+      h: 20,
+      label: '冻结名单…',
+      tip: ['写了严重违规内容被自动冻结的账号', '可以看原话和时间，误伤了可以解冻'],
+      onClick: () => g.ui.open(new FrozenScreen(g, this))
+    });
+    this.widgets.push({
+      x: cx - 100,
+      y: u.h - 30,
+      w: 200,
+      h: 20,
+      label: '完成',
+      onClick: () => this.back()
+    });
   }
   async run(k, f, ok) {
-    this.busy = k; this.layout();
-    try { await f(); this.say(ok); } catch (e) { this.say(e.message, true); }
-    this.busy = null; this.layout();
+    this.busy = k;
+    this.layout();
+    try {
+      await f();
+      this.say(ok);
+    } catch (e) {
+      this.say(e.message, true);
+    }
+    this.busy = null;
+    this.layout();
   }
   setNick(n) {
-    return this.run('nick', async () => { await Account.update({ tempNick: n }); this.nick = Account.data.tempNick || ''; },
-      n ? `之后进联机房间时叫「${n}」（已经在房间里的话，重新进入后生效）` : '已改回 B站名（重新进入房间后生效）');
+    return this.run('nick', async () => {
+      await Account.update({
+        tempNick: n
+      });
+      this.nick = Account.data.tempNick || '';
+    }, n ? `之后进联机房间时叫「${n}」（已经在房间里的话，重新进入后生效）` : '已改回 B站名（重新进入房间后生效）');
   }
-  setColor(c) { return this.run('color', () => Account.update({ nameColor: c }), c ? '昵称颜色已设置，房间里的人马上能看到' : '已取消昵称颜色'); }
+  setColor(c) {
+    return this.run('color', () => Account.update({
+      nameColor: c
+    }), c ? '昵称颜色已设置，房间里的人马上能看到' : '已取消昵称颜色');
+  }
   announce() {
     const text = this.notice.trim();
-    if (!text) { this.say('先写公告内容', true); return; }
+    if (!text) {
+      this.say('先写公告内容', true);
+      return;
+    }
     return this.run('notice', async () => {
       if (typeof textOk === 'function' && !(await textOk(this.game, text, 'chat'))) throw new Error('这段文字没有通过 B站 的内容检查');
-      await Account.api('/api/account/announce', { text });
+      await Account.api('/api/account/announce', {
+        text
+      });
       this.notice = '';
     }, '公告已发布');
   }
   drawExtra(ui) {
     this.drawFields(ui);
-    const c = ui.ctx, cx = ui.w / 2, cur = Account.data.nameColor || '';
+    const c = ui.ctx,
+      cx = ui.w / 2,
+      cur = Account.data.nameColor || '';
     Font.draw(c, '昵称颜色', cx - 150, 125, '#A0A0A0');
     Font.draw(c, '现在：' + (Account.data.tempNick || Account.name), cx + 50, 125, cur || '#FFFFFF');
   }
   draw(ui) {
     super.draw(ui);
-    const c = ui.ctx, cur = Account.data.nameColor || '';
+    const c = ui.ctx,
+      cur = Account.data.nameColor || '';
     for (const s of this.swatches || []) {
-      c.fillStyle = s.col || '#FFFFFF'; c.fillRect(s.x + 3, s.y + 3, s.w - 6, s.h - 6);
-      if (!s.col) { c.strokeStyle = '#FF5555'; c.beginPath(); c.moveTo(s.x + 4, s.y + s.h - 4); c.lineTo(s.x + s.w - 4, s.y + 4); c.stroke(); }
-      if (s.col === cur) { c.strokeStyle = '#FFFFFF'; c.lineWidth = 1; c.strokeRect(s.x + 0.5, s.y + 0.5, s.w - 1, s.h - 1); }
+      c.fillStyle = s.col || '#FFFFFF';
+      c.fillRect(s.x + 3, s.y + 3, s.w - 6, s.h - 6);
+      if (!s.col) {
+        c.strokeStyle = '#FF5555';
+        c.beginPath();
+        c.moveTo(s.x + 4, s.y + s.h - 4);
+        c.lineTo(s.x + s.w - 4, s.y + 4);
+        c.stroke();
+      }
+      if (s.col === cur) {
+        c.strokeStyle = '#FFFFFF';
+        c.lineWidth = 1;
+        c.strokeRect(s.x + 0.5, s.y + 0.5, s.w - 1, s.h - 1);
+      }
     }
   }
 }
-const g_netName = (g) => { if (Account.loggedIn) { g.settings.netName = Account.name; g.saveSettings(); } };
+const g_netName = g => {
+  if (Account.loggedIn) {
+    g.settings.netName = Account.name;
+    g.saveSettings();
+  }
+};
 
 // ---- 解锁: 三连 and following, with what each gives (the user wants this done well) ----
 class UnlockScreen extends MenuScreen {
   // then: where 开始联机 goes (the gate's next step; none: the multiplayer screen from the title)
   constructor(game, parent, reason, then) {
-    super(game, '解锁'); this.parent = parent; this.reason = reason || ''; this.then = then || null; this.startOn = Account.has('online'); this.goldFrom = 0; this.pauses = false; this.titleY = 12; this.note = ''; this.noteColor = '#A0A0A0'; this.inToy = null; this.went = null;
-    Account.loadGate().then(() => { if (this.game.ui.screen === this) this.layout(); });
-    Toy.ready().then((v) => { this.inToy = v; if (this.game.ui.screen === this) this.layout(); if (v && Account.loggedIn && Date.now() - Account.lastCheck > 15000) this.check(true); });
+    super(game, '解锁');
+    this.parent = parent;
+    this.reason = reason || '';
+    this.then = then || null;
+    this.startOn = Account.has('online');
+    this.goldFrom = 0;
+    this.pauses = false;
+    this.titleY = 12;
+    this.note = '';
+    this.noteColor = '#A0A0A0';
+    this.inToy = null;
+    this.went = null;
+    Account.loadGate().then(() => {
+      if (this.game.ui.screen === this) this.layout();
+    });
+    Toy.ready().then(v => {
+      this.inToy = v;
+      if (this.game.ui.screen === this) this.layout();
+      if (v && Account.loggedIn && Date.now() - Account.lastCheck > 15000) this.check(true);
+    });
     // back from the video / the UP's page: look again
     // (B站 may take a few seconds to count a new follow or coin: looked at a few more times while this is open)
-    this.onBack = () => { if (document.visibilityState === 'visible' && this.went && this.game.ui.screen === this) { this.went = null; this.retries = 3; setTimeout(() => this.check(), 600); } };
-    document.addEventListener('visibilitychange', this.onBack); window.addEventListener('focus', this.onBack);
+    this.onBack = () => {
+      if (document.visibilityState === 'visible' && this.went && this.game.ui.screen === this) {
+        this.went = null;
+        this.retries = 3;
+        setTimeout(() => this.check(), 600);
+      }
+    };
+    document.addEventListener('visibilitychange', this.onBack);
+    window.addEventListener('focus', this.onBack);
   }
   // (close() is the UI's: called whenever another screen takes this one's place - opening one from it recursed)
-  close() { document.removeEventListener('visibilitychange', this.onBack); window.removeEventListener('focus', this.onBack); }
-  back() { this.game.ui.open(this.parent || new TitleScreen(this.game)); }
-  onEsc() { this.back(); }
-  say(t, bad) { this.note = t; this.noteColor = bad ? '#FF6060' : '#A0A0A0'; }
+  close() {
+    document.removeEventListener('visibilitychange', this.onBack);
+    window.removeEventListener('focus', this.onBack);
+  }
+  back() {
+    this.game.ui.open(this.parent || new TitleScreen(this.game));
+  }
+  onEsc() {
+    this.back();
+  }
+  say(t, bad) {
+    this.note = t;
+    this.noteColor = bad ? '#FF6060' : '#A0A0A0';
+  }
   cards() {
-    const u = this.game.ui, cx = u.w / 2, w = Math.min(170, Math.floor((u.w - 24) / 2)), h = 132, y = 46;
-    const g = Account.gate || {}, hasVideo = !!(g.videos && g.videos.length);
-    return [
-      { x: cx - w - 4, y, w, h, kind: 'triple', on: hasVideo, done: Account.tripleOk(), title: '给视频三连', sub: hasVideo ? '点赞 + 投币 + 收藏' : '视频发布后开放', gives: ['4 款静态披风', '自定义皮肤（正版玩家皮肤）'] },
-      { x: cx + 4, y, w, h, kind: 'follow', on: true, done: !!Account.unlocks.follow, title: '关注 UP 主', sub: '土豆味小哲', gives: ['3 款动态披风', hasVideo ? '' : '（视频发布前也解锁静态披风和皮肤）'].filter(Boolean) },
-    ];
+    const u = this.game.ui,
+      cx = u.w / 2,
+      w = Math.min(170, Math.floor((u.w - 24) / 2)),
+      h = 132,
+      y = 46;
+    const g = Account.gate || {},
+      hasVideo = !!(g.videos && g.videos.length);
+    return [{
+      x: cx - w - 4,
+      y,
+      w,
+      h,
+      kind: 'triple',
+      on: hasVideo,
+      done: Account.tripleOk(),
+      title: '给新视频三连',
+      sub: hasVideo ? g.videos.length > 1 ? '任意一个新视频点赞+投币+收藏' : '点赞+投币+收藏（老视频不算）' : '视频发布后开放',
+      gives: ['4 款静态披风', '自定义皮肤（正版玩家皮肤）']
+    }, {
+      x: cx + 4,
+      y,
+      w,
+      h,
+      kind: 'follow',
+      on: true,
+      done: !!Account.unlocks.follow,
+      title: '关注 UP 主',
+      sub: '土豆味小哲',
+      gives: ['3 款动态披风', hasVideo ? '' : '（视频发布前也解锁静态披风和皮肤）'].filter(Boolean)
+    }];
   }
   layout() {
-    const u = this.game.ui, cx = u.w / 2, g = this.game;
+    const u = this.game.ui,
+      cx = u.w / 2,
+      g = this.game;
     this.widgets = [];
     if (!Account.loggedIn) {
-      this.widgets.push({ x: cx - 100, y: 196, w: 200, h: 24, gold: true, label: '先登录', onClick: () => g.ui.open(new LoginScreen(g, () => g.ui.open(new UnlockScreen(g, this.parent, this.reason, this.then)), () => offlineBack(g, this.parent))) });
+      this.widgets.push({
+        x: cx - 100,
+        y: 196,
+        w: 200,
+        h: 24,
+        gold: true,
+        label: '先登录',
+        onClick: () => g.ui.open(new LoginScreen(g, () => g.ui.open(new UnlockScreen(g, this.parent, this.reason, this.then)), () => offlineBack(g, this.parent)))
+      });
     } else for (const k of this.cards()) {
       if (k.done || !k.on) continue;
-      this.widgets.push({ x: k.x + 10, y: k.y + k.h - 28, w: k.w - 20, h: 20, gold: true, enabled: this.inToy === true,
-        label: k.kind === 'triple' ? '去三连' : '去关注', tip: this.inToy === false ? ['请在 B站 App 或电脑网页的游戏页面里操作'] : [k.kind === 'triple' ? '打开视频页，点赞、投币、收藏后回来' : '打开 UP 主的空间，关注后回来'],
-        onClick: () => this.go(k.kind) });
+      this.widgets.push({
+        x: k.x + 10,
+        y: k.y + k.h - 28,
+        w: k.w - 20,
+        h: 20,
+        gold: true,
+        enabled: this.inToy === true,
+        label: k.kind === 'triple' ? '去三连' : '去关注',
+        tip: this.inToy === false ? ['请在 B站 App 或电脑网页的游戏页面里操作'] : [k.kind === 'triple' ? '打开视频页，点赞、投币、收藏后回来' : '打开 UP 主的空间，关注后回来'],
+        onClick: () => this.go(k.kind)
+      });
     }
     // online unlocked: the check button turns gold into 开始联机 (at once if it already was when this opened)
     const canStart = Account.has('online') && (this.then || g.state !== 'play');
-    if (!canStart) { this.goldFrom = 0; this.startOn = false; }
-    else if (!this.startOn && !this.goldFrom) this.goldFrom = performance.now();
-    if (canStart) this.widgets.push({ x: cx - 100, y: 196, w: 98, h: 20, gold: true, goldFrom: this.goldFrom, fromLabel: '我完成了，检查', label: '开始联机', onClick: () => this.start() });
-    else if (Account.loggedIn) this.widgets.push({ x: cx - 100, y: 196, w: 98, h: 20, label: () => (Account.checking ? '正在检查…' : '我完成了，检查'), enabled: this.inToy === true && !Account.checking, onClick: () => this.check() });
-    this.widgets.push({ x: Account.loggedIn ? cx + 2 : cx - 100, y: Account.loggedIn ? 196 : 224, w: Account.loggedIn ? 98 : 200, h: 20, label: '返回', onClick: () => this.back() });
+    if (!canStart) {
+      this.goldFrom = 0;
+      this.startOn = false;
+    } else if (!this.startOn && !this.goldFrom) this.goldFrom = performance.now();
+    if (canStart) this.widgets.push({
+      x: cx - 100,
+      y: 196,
+      w: 98,
+      h: 20,
+      gold: true,
+      goldFrom: this.goldFrom,
+      fromLabel: '我完成了，检查',
+      label: '开始联机',
+      onClick: () => this.start()
+    });else if (Account.loggedIn) this.widgets.push({
+      x: cx - 100,
+      y: 196,
+      w: 98,
+      h: 20,
+      label: () => Account.checking ? '正在检查…' : '我完成了，检查',
+      enabled: this.inToy === true && !Account.checking,
+      onClick: () => this.check()
+    });
+    this.widgets.push({
+      x: Account.loggedIn ? cx + 2 : cx - 100,
+      y: Account.loggedIn ? 196 : 224,
+      w: Account.loggedIn ? 98 : 200,
+      h: 20,
+      label: '返回',
+      onClick: () => this.back()
+    });
   }
   start() {
-    const g = this.game, t = this.then;
+    const g = this.game,
+      t = this.then;
     Telemetry.count && Telemetry.count('unlock_start');
-    if (t) { this.then = null; return t(); }
+    if (t) {
+      this.then = null;
+      return t();
+    }
     g.ui.open(new MultiplayerScreen(g, this.parent instanceof TitleScreen ? this.parent : new TitleScreen(g)));
   }
   async go(kind) {
     const g = Account.gate || {};
     this.went = kind;
     try {
-      if (kind === 'triple') await Toy.openVideo(g.videos[0]); else await Toy.openAuthor();
-      this.say(kind === 'triple' ? '完成三连后回到这里，会自动检查' : '关注后回到这里，会自动检查');
+      if (kind === 'triple') await Toy.openVideo(Account.pickVideo());else await Toy.openAuthor();
+      this.say(Toy.backHint(kind));
       // (some hosts open it inside the same view: check again a little later too)
-      setTimeout(() => { if (this.went === kind && this.game.ui.screen === this) { this.went = null; this.retries = 3; this.check(true); } }, 8000);
-    } catch (e) { this.went = null; this.say(Toy.explain(e), true); }
+      setTimeout(() => {
+        if (this.went === kind && this.game.ui.screen === this) {
+          this.went = null;
+          this.retries = 3;
+          this.check(true);
+        }
+      }, 8000);
+    } catch (e) {
+      this.went = null;
+      this.say(Toy.explain(e), true);
+    }
     this.layout();
   }
   async check(quiet) {
@@ -483,71 +1357,139 @@ class UnlockScreen extends MenuScreen {
       const r = await Account.checkUnlocks();
       if (!r) return;
       const missing = !Account.allUnlocked();
-      if (missing && this.retries > 0 && r.inToy) { this.retries--; setTimeout(() => { if (this.game.ui.screen === this) this.check(this.retries > 0); }, 4000); }
-      if (!r.inToy) this.say('请在 B站 App 或电脑网页的游戏页面里检查', true);
-      else if (!r.own && missing && !(r.got && r.got.length)) this.say('这里没登录你自己的 B站：用你的 B站 关注、三连后，在那台设备打开一次游戏就会同步', true);
-      else if (r.error && r.follow === null && r.triple === null) this.say(Toy.explain(r.error), true);
-      else if (r.got && r.got.length) this.say('解锁成功！', false);
+      if (missing && this.retries > 0 && r.inToy) {
+        this.retries--;
+        setTimeout(() => {
+          if (this.game.ui.screen === this) this.check(this.retries > 0);
+        }, 4000);
+      }
+      if (!r.inToy) this.say('请在 B站 App 或电脑网页的游戏页面里检查', true);else if (!r.own && missing && !(r.got && r.got.length)) this.say('这里没登录你自己的 B站：用你的 B站 关注、三连后，在那台设备打开一次游戏就会同步', true);else if (r.error && r.follow === null && r.triple === null) this.say(Toy.explain(r.error), true);else if (r.got && r.got.length) this.say('解锁成功！', false);
       // (三连 asked for but not readable: said, not "all done")
       else if (Account.gate && Account.gate.videos && Account.gate.videos.length && r.triple === null && !Account.unlocks.triple) {
         this.say('没查到三连状态（' + (r.error ? Toy.explain(r.error) : 'B站没有返回能看懂的数据') + '），过一会儿再点检查', true);
-      }
-      else if (!quiet) {
-        const t = Account.tripleParts, miss = [];
-        if (t && !t.all) { if (!t.like) miss.push('点赞'); if (!t.coin) miss.push('投币'); if (!t.fav) miss.push('收藏'); }
+      } else if (!quiet) {
+        const t = Account.tripleParts,
+          miss = [];
+        if (t && !t.all) {
+          if (!t.like) miss.push('点赞');
+          if (!t.coin) miss.push('投币');
+          if (!t.fav) miss.push('收藏');
+        }
         if (!Account.unlocks.follow) miss.push('关注');
-        this.say(miss.length ? '还差：' + miss.join('、') + '（刚操作完可能要等几秒）' : '都完成了', !!miss.length);
+        // (several videos: the three on the same one)
+        const many = Account.gate && Account.gate.videos && Account.gate.videos.length > 1 && t && !t.all;
+        this.say(miss.length ? '还差：' + miss.join('、') + (many ? '（要在同一个视频上）' : '（刚操作完可能要等几秒）') : '都完成了', !!miss.length);
       }
-    } catch (e) { this.say(e.message, true); }
+    } catch (e) {
+      this.say(e.message, true);
+    }
     if (this.game.ui.screen === this) this.layout();
   }
   drawExtra(ui) {
-    const c = ui.ctx, cx = ui.w / 2;
-    if (this.reason) Font.center(c, fitText(this.reason, ui.w - 8), cx, 26, '#FFD24A');
-    else Font.center(c, fitText('支持一下 UP 主，就能解锁披风、皮肤和联机', ui.w - 8), cx, 26, '#E0E0E0');
+    const c = ui.ctx,
+      cx = ui.w / 2;
+    if (this.reason) Font.center(c, fitText(this.reason, ui.w - 8), cx, 26, '#FFD24A');else Font.center(c, fitText('支持一下 UP 主，就能解锁披风、皮肤和联机', ui.w - 8), cx, 26, '#E0E0E0');
     for (const k of this.cards()) {
       drawCard(c, k.x, k.y, k.w, k.h, !k.done && k.on);
-      if (k.kind === 'triple') { drawIcon(c, 'like', k.x + 8, k.y + 8, 1, '#FB7299'); drawIcon(c, 'coin', k.x + 18, k.y + 8, 1, '#FFD24A'); drawIcon(c, 'star', k.x + 28, k.y + 8, 1, '#FFD24A'); }
-      else drawIcon(c, 'follow', k.x + 8, k.y + 8, 1, '#FB7299');
+      if (k.kind === 'triple') {
+        drawIcon(c, 'like', k.x + 8, k.y + 8, 1, '#FB7299');
+        drawIcon(c, 'coin', k.x + 18, k.y + 8, 1, '#FFD24A');
+        drawIcon(c, 'star', k.x + 28, k.y + 8, 1, '#FFD24A');
+      } else drawIcon(c, 'follow', k.x + 8, k.y + 8, 1, '#FB7299');
       Font.draw(c, k.title, k.x + (k.kind === 'triple' ? 40 : 20), k.y + 8, '#FFFFFF');
       Font.draw(c, fitText(k.sub, k.w - 16), k.x + 8, k.y + 22, '#A0A0A0');
       Font.draw(c, '解锁：', k.x + 8, k.y + 38, '#FFD24A');
       k.gives.forEach((t, i) => Font.draw(c, fitText(t, k.w - 16), k.x + 8, k.y + 50 + i * 10, '#E0E0E0'));
       // the capes it gives
       if (typeof Capes !== 'undefined') {
-        const list = Capes.list.filter((p) => (k.kind === 'triple' ? !p.anim : p.anim)).slice(0, 4);
+        const list = Capes.list.filter(p => k.kind === 'triple' ? !p.anim : p.anim).slice(0, 4);
         list.forEach((p, i) => Capes.drawFlat(c, p.id, k.x + 8 + i * 26, k.y + 72, 2, !k.done));
       }
-      if (k.done) { drawIcon(c, 'check', k.x + k.w - 30, k.y + k.h - 26, 2, '#55FF55'); Font.draw(c, '已完成', k.x + 10, k.y + k.h - 22, '#55FF55'); }
-      else if (!k.on) Font.draw(c, '敬请期待', k.x + 10, k.y + k.h - 22, '#808080');
+      if (k.done) {
+        drawIcon(c, 'check', k.x + k.w - 30, k.y + k.h - 26, 2, '#55FF55');
+        Font.draw(c, '已完成', k.x + 10, k.y + k.h - 22, '#55FF55');
+      } else if (!k.on) Font.draw(c, '敬请期待', k.x + 10, k.y + k.h - 22, '#808080');
     }
     const on = Account.has('online');
     const y = 46 + 132 + 5;
-    if (Account.loggedIn) Font.center(c, fitText(on ? '✓ 联机已解锁' : (Account.gate && Account.gate.triple ? '三连 + 关注 = 解锁联机' : '关注 = 解锁联机'), ui.w - 8), cx, y - 1, on ? '#55FF55' : '#FFD24A');
-    if (this.note) Font.center(c, fitText(this.note, ui.w - 8), cx, ui.h - 22 + (Account.loggedIn ? 0 : -6), this.noteColor);
-    else if (this.inToy === false && Account.loggedIn) Font.center(c, fitText('在 B站 App 或电脑网页上打开游戏才能三连和关注；在别处用识别码登录时，按最后一次在 B站 检查到的状态', ui.w - 8), cx, ui.h - 22, '#A0A0A0');
+    if (Account.loggedIn) Font.center(c, fitText(on ? Account.has('jing') ? '✓ 联机、模组和鲸鲸已解锁' : '✓ 联机和模组已解锁' : Account.gate && Account.gate.triple ? '三连 + 关注 = 解锁联机、模组和鲸鲸' : '关注 = 解锁联机和模组', ui.w - 8), cx, y - 1, on ? '#55FF55' : '#FFD24A');
+    if (this.note) Font.center(c, fitText(this.note, ui.w - 8), cx, ui.h - 22 + (Account.loggedIn ? 0 : -6), this.noteColor);else if (this.inToy === false && Account.loggedIn) Font.center(c, fitText('在 B站 App 或电脑网页上打开游戏才能三连和关注；在别处用识别码登录时，按最后一次在 B站 检查到的状态', ui.w - 8), cx, ui.h - 22, '#A0A0A0');
   }
 }
 
 // ---- 诊断: the raw answers Bilibili gave (the field names of follow / 三连 are not documented) ----
 class ToyDiagScreen extends MenuScreen {
-  constructor(game, parent) { super(game, 'B站 接口诊断'); this.parent = parent; this.pauses = false; this.titleY = 12; this.lines = ['正在读取…']; this.run(); }
-  async run() {
-    const L = [], j = (v) => { try { return JSON.stringify(v); } catch (e) { return String(v); } };
-    L.push('在 Toy 里：' + (await Toy.ready()) + (Toy.mock ? '（模拟）' : ''));
-    const g = await Account.loadGate(true); L.push('联机门槛：' + j(g));
-    try { const p = await Toy.profile(); L.push('用户：' + p.nickname + (p.toyOpenId ? '（有 toyOpenId）' : '（没有 toyOpenId）')); } catch (e) { L.push('用户：' + e.type + ' ' + e.message); }
-    try { L.push('关注 → ' + (await Toy.following())); L.push('  原始：' + j(Toy.last.relation)); } catch (e) { L.push('关注：' + e.type + ' ' + e.message); }
-    if (g.videos && g.videos.length) { try { L.push('三连 → ' + j(await Toy.triple(g.videos))); L.push('  原始：' + j(Toy.last.videoActions)); } catch (e) { L.push('三连：' + e.type + ' ' + e.message); } }
-    try { L.push('能力：' + j(await Toy.abilities())); } catch (e) { L.push('能力：' + e.type); }
-    this.lines = L; if (this.game.ui.screen === this) this.layout();
+  constructor(game, parent) {
+    super(game, 'B站 接口诊断');
+    this.parent = parent;
+    this.pauses = false;
+    this.titleY = 12;
+    this.lines = ['正在读取…'];
+    this.run();
   }
-  layout() { const u = this.game.ui; this.widgets = [{ x: u.w / 2 - 100, y: u.h - 28, w: 200, h: 20, label: '完成', onClick: () => this.game.ui.open(this.parent) }]; }
+  async run() {
+    const L = [],
+      j = v => {
+        try {
+          return JSON.stringify(v);
+        } catch (e) {
+          return String(v);
+        }
+      };
+    L.push('在 Toy 里：' + (await Toy.ready()) + (Toy.mock ? '（模拟）' : ''));
+    const g = await Account.loadGate(true);
+    L.push('联机门槛：' + j(g));
+    try {
+      const p = await Toy.profile();
+      L.push('用户：' + p.nickname + (p.toyOpenId ? '（有 toyOpenId）' : '（没有 toyOpenId）'));
+    } catch (e) {
+      L.push('用户：' + e.type + ' ' + e.message);
+    }
+    try {
+      L.push('关注 → ' + (await Toy.following()));
+      L.push('  原始：' + j(Toy.last.relation));
+    } catch (e) {
+      L.push('关注：' + e.type + ' ' + e.message);
+    }
+    if (g.videos && g.videos.length) {
+      try {
+        L.push('三连 → ' + j(await Toy.triple(g.videos)));
+        L.push('  原始：' + j(Toy.last.videoActions));
+      } catch (e) {
+        L.push('三连：' + e.type + ' ' + e.message);
+      }
+    }
+    try {
+      L.push('能力：' + j(await Toy.abilities()));
+    } catch (e) {
+      L.push('能力：' + e.type);
+    }
+    this.lines = L;
+    if (this.game.ui.screen === this) this.layout();
+  }
+  layout() {
+    const u = this.game.ui;
+    this.widgets = [{
+      x: u.w / 2 - 100,
+      y: u.h - 28,
+      w: 200,
+      h: 20,
+      label: '完成',
+      onClick: () => this.game.ui.open(this.parent)
+    }];
+  }
   drawExtra(ui) {
     let y = 30;
-    for (const t of this.lines) for (let s = String(t); s.length && y < ui.h - 36; y += 10) { let n = s.length; while (n > 1 && Font.width(s.slice(0, n)) > ui.w - 16) n--; Font.draw(ui.ctx, s.slice(0, n), 8, y, '#E0E0E0'); s = s.slice(n); }
+    for (const t of this.lines) for (let s = String(t); s.length && y < ui.h - 36; y += 10) {
+      let n = s.length;
+      while (n > 1 && Font.width(s.slice(0, n)) > ui.w - 16) n--;
+      Font.draw(ui.ctx, s.slice(0, n), 8, y, '#E0E0E0');
+      s = s.slice(n);
+    }
   }
-  onEsc() { this.game.ui.open(this.parent); }
+  onEsc() {
+    this.game.ui.open(this.parent);
+  }
 }
 
 // 离线游玩 chosen on the way into multiplayer: back where the player came from, and why online stays shut
@@ -571,68 +1513,156 @@ async function singleGate(g, then, parent) {
   // another Bilibili user on this page, Bilibili said "not following" - multiplayer let it in, single player didn't
   // (feedback 2026-11-03)
   if (Account.loggedIn && Account.unlocks.follow) return then();
-  if (!(await Promise.race([Toy.ready(), new Promise((r) => setTimeout(() => r(false), 2500))]))) return then();
-  let f = null, err = null;
-  try { f = await Toy.following(); } catch (e) { err = e; }
+  if (!(await Promise.race([Toy.ready(), new Promise(r => setTimeout(() => r(false), 2500))]))) return then();
+  let f = null,
+    err = null;
+  try {
+    f = await Toy.following();
+  } catch (e) {
+    err = e;
+  }
   // only one Bilibili says isn't following is asked; not logged in (a guest account, a browser not logged in to
   // Bilibili) the follow can't be seen at all - following changed nothing, a dead end (players' feedback 2026-10-31)
-  if (f !== false || err) { if (err && err.type === 'not_logged_in') Telemetry.count && Telemetry.count('gate_single_guest'); return then(); }
+  if (f !== false || err) {
+    if (err && err.type === 'not_logged_in') Telemetry.count && Telemetry.count('gate_single_guest');
+    return then();
+  }
   Telemetry.count && Telemetry.count('gate_single');
   g.ui.open(new FollowGateScreen(g, parent, then));
 }
 class FollowGateScreen extends MenuScreen {
-  constructor(game, parent, then) {
-    super(game, '关注 UP 主'); this.parent = parent; this.then = then; this.note = ''; this.noteColor = '#A0A0A0'; this.titleY = 40;
+  // (msg: what following opens - the single-player game's by default; 股东名单's, shareholders.js)
+  constructor(game, parent, then, msg) {
+    super(game, '关注 UP 主');
+    this.parent = parent;
+    this.then = then;
+    this.msg = msg;
+    this.note = '';
+    this.noteColor = '#A0A0A0';
+    this.titleY = 40;
     // back from the UP's page: look again (a new follow can take a few seconds to show)
-    this.onBack = () => { if (document.visibilityState === 'visible' && this.went && this.game.ui.screen === this) { this.went = false; this.retries = 3; setTimeout(() => this.check(true), 600); } };
-    document.addEventListener('visibilitychange', this.onBack); window.addEventListener('focus', this.onBack);
+    this.onBack = () => {
+      if (document.visibilityState === 'visible' && this.went && this.game.ui.screen === this) {
+        this.went = false;
+        this.retries = 3;
+        setTimeout(() => this.check(true), 600);
+      }
+    };
+    document.addEventListener('visibilitychange', this.onBack);
+    window.addEventListener('focus', this.onBack);
   }
-  close() { document.removeEventListener('visibilitychange', this.onBack); window.removeEventListener('focus', this.onBack); }
-  back() { this.game.ui.open(this.parent || new TitleScreen(this.game)); }
-  onEsc() { this.back(); }
+  close() {
+    document.removeEventListener('visibilitychange', this.onBack);
+    window.removeEventListener('focus', this.onBack);
+  }
+  back() {
+    this.game.ui.open(this.parent || new TitleScreen(this.game));
+  }
+  onEsc() {
+    this.back();
+  }
   layout() {
-    const u = this.game.ui, cx = u.w / 2, y = Math.floor(u.h / 2) + 10;
-    this.widgets = [
-      { x: cx - 100, y, w: 200, h: 20, gold: true, label: '去关注', onClick: () => this.go() },
-      { x: cx - 100, y: y + 24, w: 98, h: 20, label: () => (this.checking ? '正在检查…' : '我关注了，检查'), enabled: !this.checking, onClick: () => this.check(false) },
-      { x: cx + 2, y: y + 24, w: 98, h: 20, label: '返回', onClick: () => this.back() },
-    ];
+    const u = this.game.ui,
+      cx = u.w / 2,
+      y = Math.floor(u.h / 2) + 10;
+    this.widgets = [{
+      x: cx - 100,
+      y,
+      w: 200,
+      h: 20,
+      gold: true,
+      label: '去关注',
+      onClick: () => this.go()
+    }, {
+      x: cx - 100,
+      y: y + 24,
+      w: 98,
+      h: 20,
+      label: () => this.checking ? '正在检查…' : '我关注了，检查',
+      enabled: !this.checking,
+      onClick: () => this.check(false)
+    }, {
+      x: cx + 2,
+      y: y + 24,
+      w: 98,
+      h: 20,
+      label: '返回',
+      onClick: () => this.back()
+    }];
   }
   async go() {
     this.went = true;
-    try { await Toy.openAuthor(); this.note = '关注后回到这里，会自动检查'; this.noteColor = '#A0A0A0'; }
-    catch (e) { this.went = false; this.note = Toy.explain(e); this.noteColor = '#FF6060'; }
-    setTimeout(() => { if (this.went && this.game.ui.screen === this) { this.went = false; this.retries = 3; this.check(true); } }, 8000);
+    try {
+      await Toy.openAuthor();
+      this.note = Toy.backHint('follow');
+      this.noteColor = '#A0A0A0';
+    } catch (e) {
+      this.went = false;
+      this.note = Toy.explain(e);
+      this.noteColor = '#FF6060';
+    }
+    setTimeout(() => {
+      if (this.went && this.game.ui.screen === this) {
+        this.went = false;
+        this.retries = 3;
+        this.check(true);
+      }
+    }, 8000);
   }
   async check(quiet) {
     if (this.checking) return;
     this.checking = true;
-    let f = null, err = null;
-    try { f = await Toy.following(); } catch (e) { err = e; }
+    let f = null,
+      err = null;
+    try {
+      f = await Toy.following();
+    } catch (e) {
+      err = e;
+    }
     this.checking = false;
     if (this.game.ui.screen !== this) return;
-    if (f === true || (f === null && !err)) { Telemetry.count && Telemetry.count('gate_single_ok'); const t = this.then; this.then = null; if (t) t(); return; }
-    if (this.retries > 0) { this.retries--; setTimeout(() => { if (this.game.ui.screen === this) this.check(true); }, 4000); }
-    if (!quiet || !this.retries) { this.note = err ? Toy.explain(err) : '还没查到关注（刚关注完可能要等几秒，再点一次检查）'; this.noteColor = '#FF6060'; }
+    if (f === true || f === null && !err) {
+      Telemetry.count && Telemetry.count('gate_single_ok');
+      const t = this.then;
+      this.then = null;
+      if (t) t();
+      return;
+    }
+    if (this.retries > 0) {
+      this.retries--;
+      setTimeout(() => {
+        if (this.game.ui.screen === this) this.check(true);
+      }, 4000);
+    }
+    if (!quiet || !this.retries) {
+      this.note = err ? Toy.explain(err) : '还没查到关注（刚关注完可能要等几秒，再点一次检查）';
+      this.noteColor = '#FF6060';
+    }
   }
   drawExtra(ui) {
-    const c = ui.ctx, cx = ui.w / 2, y = Math.floor(ui.h / 2) - 40;
-    Font.center(c, fitText('关注 UP 主「土豆味小哲」后就能玩单人游戏', ui.w - 8), cx, y, '#FFD24A');
+    const c = ui.ctx,
+      cx = ui.w / 2,
+      y = Math.floor(ui.h / 2) - 40;
+    Font.center(c, fitText(this.msg || '关注 UP 主「土豆味小哲」后就能玩单人游戏', ui.w - 8), cx, y, '#FFD24A');
     Font.center(c, fitText('在 B站 里关注完回到这里，会自动检查', ui.w - 8), cx, y + 14, '#E0E0E0');
     if (this.note) Font.center(c, fitText(this.note, ui.w - 8), cx, y + 30, this.noteColor);
   }
 }
-
 async function onlineGate(g, then, parent) {
   if (!RoomService.base()) return then();
   const gate = await Account.loadGate();
   if (!gate.requireAccount && !gate.follow && !gate.triple) return then();
-  if (!Account.loggedIn) { Telemetry.count && Telemetry.count('gate_login'); return g.ui.open(new LoginScreen(g, () => onlineGate(g, then, parent), () => offlineBack(g, parent))); }
+  if (!Account.loggedIn) {
+    Telemetry.count && Telemetry.count('gate_login');
+    return g.ui.open(new LoginScreen(g, () => onlineGate(g, then, parent), () => offlineBack(g, parent)));
+  }
   // (in Bilibili: checked again now - unfollowing locks it again)
-  try { await Account.checkUnlocks(true); } catch (e) { }
+  try {
+    await Account.checkUnlocks(true);
+  } catch (e) {}
   if (!Account.has('online')) {
     Telemetry.count && Telemetry.count('gate_unlock');
-    return g.ui.open(new UnlockScreen(g, parent, gate.triple ? '联机需要给视频三连并关注 UP 主（取消后会重新锁上）' : '联机需要关注 UP 主（取消关注后会重新锁上）', then));
+    return g.ui.open(new UnlockScreen(g, parent, gate.triple ? '联机需要关注 UP 主并给新视频三连（老视频的三连不算了）' : '联机需要关注 UP 主（取消关注后会重新锁上）', then));
   }
   then();
 }

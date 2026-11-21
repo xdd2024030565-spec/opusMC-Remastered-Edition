@@ -14,6 +14,17 @@
 self.window = self;
 importScripts('assets.js', 'util.js', 'worldgen_data.js', 'worldgen.js', 'blockdata.js', 'blocks.js', 'world.js', 'mesher.js',
   'models.js', 'vmodels.js', 'structures_data.js', 'structgen.js', 'structtypes.js', 'features.js', 'trees.js');
+// opusMC Remastered: the mods' data.js too (their blocks are in the terrain, so decoration and meshing need them here).
+// ?mods=a,b comes from Mods.workerQuery() (terrain2.js: new Worker('js/chunk_worker.js' + Mods.workerQuery())).
+// (remastered: was not in the original source, which inlined the mods' data into the page's one big script)
+try {
+  const q = String(self.location.search || '').replace(/^\?/, '');
+  const list = new URLSearchParams(q).get('mods') || '';
+  for (const id of list.split(',')) {
+    if (!/^[a-z0-9_]{1,32}$/.test(id)) continue;
+    try { importScripts('../mods/' + id + '/data.js'); } catch (e) { console.warn('mod data in chunk worker: ' + id, e); }
+  }
+} catch (e) {}
 setWorldFormat(2);
 initAnimTable();
 

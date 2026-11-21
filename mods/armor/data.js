@@ -1,0 +1,50 @@
+/* ==== mods data ==== */
+'use strict';
+// 沉浸盔甲 (armor) — 从豆包联动版提取
+OpusMC.data('armor', {
+  name: '沉浸盔甲',
+  textures: ["bone_helmet", "bone_chestplate", "bone_leggings", "bone_boots", "wither_helmet", "wither_chestplate", "wither_leggings", "wither_boots", "warrior_helmet", "warrior_chestplate", "warrior_leggings", "warrior_boots", "heavy_helmet", "heavy_chestplate", "heavy_leggings", "heavy_boots", "robe_helmet", "robe_chestplate", "robe_leggings", "robe_boots", "slime_helmet", "slime_chestplate", "slime_leggings", "slime_boots", "divine_helmet", "divine_chestplate", "divine_leggings", "divine_boots", "prismarine_helmet", "prismarine_chestplate", "prismarine_leggings", "prismarine_boots", "wooden_helmet", "wooden_chestplate", "wooden_leggings", "wooden_boots", "steampunk_helmet", "steampunk_chestplate", "steampunk_leggings", "steampunk_boots"],
+  items: {
+    armor_bone_helmet: { name: '骨制头盔', texture: 'bone_helmet', durability: 363, armor: { slot: 'head', points: 2, tough: 0, mat: 'iron' } },
+    armor_bone_chestplate: { name: '骨制胸甲', texture: 'bone_chestplate', durability: 528, armor: { slot: 'chest', points: 5, tough: 0, mat: 'iron' } },
+    armor_bone_leggings: { name: '骨制护腿', texture: 'bone_leggings', durability: 495, armor: { slot: 'legs', points: 4, tough: 0, mat: 'iron' } },
+    armor_bone_boots: { name: '骨制靴子', texture: 'bone_boots', durability: 429, armor: { slot: 'feet', points: 2, tough: 0, mat: 'iron' } },
+    armor_wither_helmet: { name: '凋灵头盔', texture: 'wither_helmet', durability: 363, armor: { slot: 'head', points: 2, tough: 0, mat: 'netherite' } },
+    armor_wither_chestplate: { name: '凋灵胸甲', texture: 'wither_chestplate', durability: 528, armor: { slot: 'chest', points: 5, tough: 0, mat: 'netherite' } },
+    armor_wither_leggings: { name: '凋灵护腿', texture: 'wither_leggings', durability: 495, armor: { slot: 'legs', points: 4, tough: 0, mat: 'netherite' } },
+    armor_wither_boots: { name: '凋灵靴子', texture: 'wither_boots', durability: 429, armor: { slot: 'feet', points: 2, tough: 0, mat: 'netherite' } },
+    armor_warrior_helmet: { name: '战士头盔', texture: 'warrior_helmet', durability: 363, armor: { slot: 'head', points: 2, tough: 0, mat: 'iron' } },
+    armor_warrior_chestplate: { name: '战士胸甲', texture: 'warrior_chestplate', durability: 528, armor: { slot: 'chest', points: 5, tough: 0, mat: 'iron' } },
+    armor_warrior_leggings: { name: '战士护腿', texture: 'warrior_leggings', durability: 495, armor: { slot: 'legs', points: 4, tough: 0, mat: 'iron' } },
+    armor_warrior_boots: { name: '战士靴子', texture: 'warrior_boots', durability: 429, armor: { slot: 'feet', points: 2, tough: 0, mat: 'iron' } },
+    armor_heavy_helmet: { name: '重装头盔', texture: 'heavy_helmet', durability: 363, armor: { slot: 'head', points: 2, tough: 0, mat: 'netherite' } },
+    armor_heavy_chestplate: { name: '重装胸甲', texture: 'heavy_chestplate', durability: 528, armor: { slot: 'chest', points: 5, tough: 0, mat: 'netherite' } },
+    armor_heavy_leggings: { name: '重装护腿', texture: 'heavy_leggings', durability: 495, armor: { slot: 'legs', points: 4, tough: 0, mat: 'netherite' } },
+    armor_heavy_boots: { name: '重装靴子', texture: 'heavy_boots', durability: 429, armor: { slot: 'feet', points: 2, tough: 0, mat: 'netherite' } },
+    armor_robe_helmet: { name: '法袍头盔', texture: 'robe_helmet', durability: 363, armor: { slot: 'head', points: 2, tough: 0, mat: 'leather' } },
+    armor_robe_chestplate: { name: '法袍胸甲', texture: 'robe_chestplate', durability: 528, armor: { slot: 'chest', points: 5, tough: 0, mat: 'leather' } },
+    armor_robe_leggings: { name: '法袍护腿', texture: 'robe_leggings', durability: 495, armor: { slot: 'legs', points: 4, tough: 0, mat: 'leather' } },
+    armor_robe_boots: { name: '法袍靴子', texture: 'robe_boots', durability: 429, armor: { slot: 'feet', points: 2, tough: 0, mat: 'leather' } },
+    armor_slime_helmet: { name: '史莱姆头盔', texture: 'slime_helmet', durability: 363, armor: { slot: 'head', points: 2, tough: 0, mat: 'diamond' } },
+    armor_slime_chestplate: { name: '史莱姆胸甲', texture: 'slime_chestplate', durability: 528, armor: { slot: 'chest', points: 5, tough: 0, mat: 'diamond' } },
+    armor_slime_leggings: { name: '史莱姆护腿', texture: 'slime_leggings', durability: 495, armor: { slot: 'legs', points: 4, tough: 0, mat: 'diamond' } },
+    armor_slime_boots: { name: '史莱姆靴子', texture: 'slime_boots', durability: 429, armor: { slot: 'feet', points: 2, tough: 0, mat: 'diamond' } },
+    armor_divine_helmet: { name: '神圣头盔', texture: 'divine_helmet', durability: 363, armor: { slot: 'head', points: 2, tough: 0, mat: 'golden' } },
+    armor_divine_chestplate: { name: '神圣胸甲', texture: 'divine_chestplate', durability: 528, armor: { slot: 'chest', points: 5, tough: 0, mat: 'golden' } },
+    armor_divine_leggings: { name: '神圣护腿', texture: 'divine_leggings', durability: 495, armor: { slot: 'legs', points: 4, tough: 0, mat: 'golden' } },
+    armor_divine_boots: { name: '神圣靴子', texture: 'divine_boots', durability: 429, armor: { slot: 'feet', points: 2, tough: 0, mat: 'golden' } },
+    armor_prismarine_helmet: { name: '海晶石头盔', texture: 'prismarine_helmet', durability: 363, armor: { slot: 'head', points: 2, tough: 0, mat: 'diamond' } },
+    armor_prismarine_chestplate: { name: '海晶石胸甲', texture: 'prismarine_chestplate', durability: 528, armor: { slot: 'chest', points: 5, tough: 0, mat: 'diamond' } },
+    armor_prismarine_leggings: { name: '海晶石护腿', texture: 'prismarine_leggings', durability: 495, armor: { slot: 'legs', points: 4, tough: 0, mat: 'diamond' } },
+    armor_prismarine_boots: { name: '海晶石靴子', texture: 'prismarine_boots', durability: 429, armor: { slot: 'feet', points: 2, tough: 0, mat: 'diamond' } },
+    armor_wooden_helmet: { name: '木制头盔', texture: 'wooden_helmet', durability: 363, armor: { slot: 'head', points: 2, tough: 0, mat: 'leather' } },
+    armor_wooden_chestplate: { name: '木制胸甲', texture: 'wooden_chestplate', durability: 528, armor: { slot: 'chest', points: 5, tough: 0, mat: 'leather' } },
+    armor_wooden_leggings: { name: '木制护腿', texture: 'wooden_leggings', durability: 495, armor: { slot: 'legs', points: 4, tough: 0, mat: 'leather' } },
+    armor_wooden_boots: { name: '木制靴子', texture: 'wooden_boots', durability: 429, armor: { slot: 'feet', points: 2, tough: 0, mat: 'leather' } },
+    armor_steampunk_helmet: { name: '蒸汽朋克头盔', texture: 'steampunk_helmet', durability: 363, armor: { slot: 'head', points: 2, tough: 0, mat: 'copper' } },
+    armor_steampunk_chestplate: { name: '蒸汽朋克胸甲', texture: 'steampunk_chestplate', durability: 528, armor: { slot: 'chest', points: 5, tough: 0, mat: 'copper' } },
+    armor_steampunk_leggings: { name: '蒸汽朋克护腿', texture: 'steampunk_leggings', durability: 495, armor: { slot: 'legs', points: 4, tough: 0, mat: 'copper' } },
+    armor_steampunk_boots: { name: '蒸汽朋克靴子', texture: 'steampunk_boots', durability: 429, armor: { slot: 'feet', points: 2, tough: 0, mat: 'copper' } }
+  }
+});
+

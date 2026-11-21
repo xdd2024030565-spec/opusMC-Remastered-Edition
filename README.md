@@ -11,8 +11,23 @@
 ## 这是什么
 
 - 原项目：B 站 UP「土豆味小哲」用 Claude Opus 开发的网页版 MC（2026-11 从 B 站下架）。
-- 本项目使用原作者开源镜像 `OpusMCLLL/OpusMC-OpenSource` 的游戏本体（轻量版，首页仅 5KB，手机秒开），仅改造存档层与登录方式，游戏玩法、材质、手感与原网页版一致。
+- 游戏本体取自 2026-11-14 的最新开源镜像 `cswfwm/opusmc-web`（含原版 11-04 之后全部 bug 修复），并拆成「小首页 + 真实 js/ 目录 + 真实 mods/ 目录」的结构——首页只有 116KB，不再内联 24MB 数据块，手机不会卡在红色加载页。
+- 只改造存档层与登录方式，游戏玩法、材质、手感、模组内容与原网页版一致。
 - 原项目说明见 [ORIGINAL_README.md](ORIGINAL_README.md)。
+
+## 内置模组
+
+| 模组 | 说明 |
+| --- | --- |
+| 匠魂 Tinkers' Construct | 匠魂工具系统（141 个文件，含手册、冶炼炉、精灵图） |
+| 农夫乐事 Farmer's Delight | 厨具、作物、食物（40 个文件，含音效） |
+| 连锁挖矿 Veinminer | 挖一个方块挖掉整条矿脉 |
+| 夜视 Night Vision | 可开关的夜视效果 |
+| 移动光源 Dynamic Lights | 手持光源实时照亮周围 |
+| 沉浸盔甲 Immersive Armor | 10 套材料 × 4 件 = 40 件盔甲，含专属穿戴层外观 |
+| 匠魂教程地图 / 农夫乐事教程地图 | 打开即玩的示范世界 |
+
+模组贴图与音效全部走真实文件路径（`mods/<id>/textures|sounds`），地形生成与区块网格化的 Web Worker 也会加载模组数据，所以模组方块在世界里显示正常、不会缺面。
 
 ## 登录（存档密码）
 
@@ -55,6 +70,8 @@
 - 国内（推荐，帽子云 CDN）：<https://opusmc-10h3d8c30u.maozi.io/>
 - 备用（GitHub Pages）：<https://xdd2024030565-spec.github.io/opusMC-Remastered-Edition/>
 - 本地：在本目录起一个静态服务器，例如 `python3 -m http.server 8080`，浏览器访问 `http://localhost:8080/`。
+
+> 目录结构：`index.html`（小首页）+ `js/`（97 个游戏脚本，含 `cloud-github.js` 云存档层）+ `mods/`（8 个模组）。首页用真实的 `<script src>` 逐个加载，方便浏览器缓存与压缩传输。
 
 > 注意：需要通过 http(s) 打开（`file://` 下浏览器会拒绝跨域存档 API）。
 

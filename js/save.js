@@ -1,54 +1,120 @@
+
 'use strict';
+
 // ---------------------------------------------------------------------------
 // Persistence: IndexedDB, falling back to localStorage, then to memory
 // ---------------------------------------------------------------------------
 const LS = {
-  ok: (() => { try { const k = '__mcjs_test'; localStorage.setItem(k, '1'); localStorage.removeItem(k); return true; } catch (e) { return false; } })(),
-  get(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } },
-  set(k, v) { localStorage.setItem(k, JSON.stringify(v)); },
-  keys(prefix) { const out = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(prefix)) out.push(k); } return out; },
+  ok: (() => {
+    try {
+      const k = '__mcjs_test';
+      localStorage.setItem(k, '1');
+      localStorage.removeItem(k);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  })(),
+  get(k) {
+    try {
+      const v = localStorage.getItem(k);
+      return v ? JSON.parse(v) : null;
+    } catch (e) {
+      return null;
+    }
+  },
+  set(k, v) {
+    localStorage.setItem(k, JSON.stringify(v));
+  },
+  keys(prefix) {
+    const out = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k.startsWith(prefix)) out.push(k);
+    }
+    return out;
+  }
 };
-
 const DB = {
   NAME: 'mc-js-clone',
   // the stores and how each is made (a new one only needs adding here: the database is bumped by itself - see connect)
-  STORES: { worlds: { keyPath: 'id' }, chunks: undefined },
-  db: null, mem: { worlds: new Map(), chunks: new Map() }, ok: false, backend: 'memory', opens: 0, blocked: false,
+  STORES: {
+    worlds: {
+      keyPath: 'id'
+    },
+    chunks: undefined
+  },
+  db: null,
+  mem: {
+    worlds: new Map(),
+    chunks: new Map()
+  },
+  ok: false,
+  backend: 'memory',
+  opens: 0,
+  blocked: false,
   // the first open: IndexedDB missing or failing -> localStorage, else memory. A database that is slow to answer
   // (another page holding it while it has to be repaired) doesn't keep the game from starting: after 8 s the title
   // comes up and what reads or saves waits for the connection (wait)
   open() {
-    // opusMC Remastered Edition：纯云端存档 —— 强制内存后端，绝不碰 IndexedDB / localStorage 存档。
-    // 存档由 cloud-github.js 从 GitHub 拉取/推送，本地只在内存里保留当前会话数据。
+    // opusMC Remastered Edition：存档只在云端（js/cloud-github.js），本地一律用内存后端 ——
+    // 不写 IndexedDB / localStorage，页面刷新后从云端重新拉取。
     this.ok = true;
     this.backend = 'memory';
     return Promise.resolve(true);
-    /* original implementation disabled (local persistence is intentionally off):
-    return new Promise((res) => {
-      let done = false, t = 0;
-      const fin = (ok) => { if (done) return; done = true; clearTimeout(t); if (ok) { this.ok = true; this.backend = 'idb'; } else this.backend = LS.ok ? 'local' : 'memory'; res(ok); };
+    /* original implementation disabled（本地存档）：保留以便对照
+    return new Promise(res => {
+      let done = false,
+        t = 0;
+      const fin = ok => {
+        if (done) return;
+        done = true;
+        clearTimeout(t);
+        if (ok) {
+          this.ok = true;
+          this.backend = 'idb';
+        } else this.backend = LS.ok ? 'local' : 'memory';
+        res(ok);
+      };
       t = setTimeout(() => fin(true), 8000);
       // (a late failure: nothing was written to it meanwhile - every read and save was waiting for it)
-      this.conn().then(() => fin(true), () => { if (!done) fin(false); else if (!this.db && !this.opens) this.backend = LS.ok ? 'local' : 'memory'; });
+      this.conn().then(() => fin(true), () => {
+        if (!done) fin(false);else if (!this.db && !this.opens) this.backend = LS.ok ? 'local' : 'memory';
+      });
     });
-    original implementation disabled */
+    */
   },
   // the browser closes the connection by itself (a phone app sent to the background, storage cleaned up, another
   // tab upgrading): every save after that failed with "The database connection is closing" - 1739 devices on
   // 2026-11-01/02, "保存失败", worlds rolled back. The handle is dropped when that happens and opened again
   took(db) {
     this.db = db;
-    db.onclose = () => { db.gone = true; if (this.db === db) this.db = null; };
+    db.onclose = () => {
+      db.gone = true;
+      if (this.db === db) this.db = null;
+    };
     db.onversionchange = () => this.drop(db);
   },
-  drop(db) { db.gone = true; try { db.close(); } catch (e) { } if (this.db === db) this.db = null; },
+  drop(db) {
+    db.gone = true;
+    try {
+      db.close();
+    } catch (e) {}
+    if (this.db === db) this.db = null;
+  },
   conn() {
     if (this.db) return Promise.resolve(this.db);
     if (!this.reopening) {
-      const p = this.reopening = this.connect().then(
-        (db) => { if (this.reopening === p) this.reopening = null; this.took(db); this.opens++; return db; },
-        (e) => { if (this.reopening === p) this.reopening = null; throw e; });
-      p.catch(() => { });
+      const p = this.reopening = this.connect().then(db => {
+        if (this.reopening === p) this.reopening = null;
+        this.took(db);
+        this.opens++;
+        return db;
+      }, e => {
+        if (this.reopening === p) this.reopening = null;
+        throw e;
+      });
+      p.catch(() => {});
     }
     return this.reopening;
   },
@@ -62,14 +128,32 @@ const DB = {
   // another tab opens version 1 by number and would fail with a VersionError after a bump)
   async connect() {
     let ver;
-    for (let n = 0; ; n++) {
-      let db, made = false;
-      try { db = await this.req(ver, () => { made = true; }); }
-      catch (e) { if (e && e.name === 'VersionError' && n < 4) { ver = undefined; continue; } throw e; } // (another page bumped it first)
+    for (let n = 0;; n++) {
+      let db,
+        made = false;
+      try {
+        db = await this.req(ver, () => {
+          made = true;
+        });
+      } catch (e) {
+        if (e && e.name === 'VersionError' && n < 4) {
+          ver = undefined;
+          continue;
+        }
+        throw e;
+      } // (another page bumped it first)
       if (made) this.note(ver ? 'save_db_repaired' : this.opens ? 'save_db_recreated' : 'save_db_new');
-      const miss = Object.keys(this.STORES).filter((s) => !db.objectStoreNames.contains(s));
-      if (!miss.length) { if (!this.opens) try { localStorage.setItem('mcjs-db', '1'); } catch (e) { } return db; }
-      ver = db.version + 1; try { db.close(); } catch (e) { }
+      const miss = Object.keys(this.STORES).filter(s => !db.objectStoreNames.contains(s));
+      if (!miss.length) {
+        if (!this.opens) try {
+          localStorage.setItem('mcjs-db', '1');
+        } catch (e) {}
+        return db;
+      }
+      ver = db.version + 1;
+      try {
+        db.close();
+      } catch (e) {}
       if (n >= 4) throw new Error('存档数据库缺少 ' + miss.join('、') + '，修复失败');
     }
   },
@@ -78,22 +162,46 @@ const DB = {
   req(ver, upgraded) {
     return new Promise((res, rej) => {
       let r;
-      try { r = ver ? indexedDB.open(this.NAME, ver) : indexedDB.open(this.NAME); } catch (e) { rej(e); return; }
+      try {
+        r = ver ? indexedDB.open(this.NAME, ver) : indexedDB.open(this.NAME);
+      } catch (e) {
+        rej(e);
+        return;
+      }
       r.onupgradeneeded = () => {
         const db = r.result;
         for (const [s, o] of Object.entries(this.STORES)) if (!db.objectStoreNames.contains(s)) db.createObjectStore(s, o);
         upgraded();
       };
       // (closed at once when another page needs to upgrade: this one's own repair open must not be held up either)
-      r.onsuccess = () => { this.blocked = false; const db = r.result; db.onversionchange = () => { db.gone = true; db.close(); }; res(db); };
-      r.onerror = () => { this.blocked = false; rej(r.error || new Error('打不开存档数据库')); };
-      r.onblocked = () => { this.blocked = true; };
+      r.onsuccess = () => {
+        this.blocked = false;
+        const db = r.result;
+        db.onversionchange = () => {
+          db.gone = true;
+          db.close();
+        };
+        res(db);
+      };
+      r.onerror = () => {
+        this.blocked = false;
+        rej(r.error || new Error('打不开存档数据库'));
+      };
+      r.onblocked = () => {
+        this.blocked = true;
+      };
     });
   },
   // what happened to the database (telemetry: how often it is new / gone mid-game / repaired; a device that had one
   // and starts with a new one lost its worlds between two visits)
   note(k) {
-    if (k === 'save_db_new') { let had = null; try { had = localStorage.getItem('mcjs-db'); } catch (e) { } if (had) k = 'save_db_gone'; }
+    if (k === 'save_db_new') {
+      let had = null;
+      try {
+        had = localStorage.getItem('mcjs-db');
+      } catch (e) {}
+      if (had) k = 'save_db_gone';
+    }
     if (typeof Telemetry !== 'undefined' && Telemetry.count) Telemetry.count(k);
   },
   // the connection, or an error instead of waiting for ever (saving and quitting waits on it)
@@ -102,44 +210,71 @@ const DB = {
     const p = this.conn();
     return new Promise((res, rej) => {
       const t = setTimeout(() => rej(new Error(this.blocked ? '存档数据库被另一个打开着的游戏页面占用：关掉其他游戏页面再试' : '存档数据库没有响应，稍后再试')), 15000);
-      p.then((db) => { clearTimeout(t); res(db); }, (e) => { clearTimeout(t); rej(e); });
+      p.then(db => {
+        clearTimeout(t);
+        res(db);
+      }, e => {
+        clearTimeout(t);
+        rej(e);
+      });
     });
   },
   // errors a fresh connection gets past: closed or closing (InvalidStateError; WebKit "Connection to Indexed
   // Database server lost" and "Database deleted by request of the user" are UnknownErrors), a store missing
   // (NotFoundError - the reopen repairs it), a transaction aborted under it
-  stale(e) { return !!e && (/^(InvalidStateError|NotFoundError|UnknownError|AbortError)$/.test(e.name) || /clos(ing|ed)|lost|deleted/i.test(e.message || '')); },
+  stale(e) {
+    return !!e && (/^(InvalidStateError|NotFoundError|UnknownError|AbortError)$/.test(e.name) || /clos(ing|ed)|lost|deleted/i.test(e.message || ''));
+  },
   // what the player reads after "保存失败: " (the browser's words are English; telemetry: QuotaExceededError on 6 devices)
   nice(e) {
     if (e && (e.name === 'QuotaExceededError' || e.code === 22 || /quota/i.test(e.message || ''))) {
-      const q = new Error('存储空间不够了：删掉不玩的世界，或清理设备的存储空间 (QuotaExceededError)'); q.name = 'QuotaExceededError'; return q;
+      const q = new Error('存储空间不够了：删掉不玩的世界，或清理设备的存储空间 (QuotaExceededError)');
+      q.name = 'QuotaExceededError';
+      return q;
     }
     return e;
   },
   // (again on a fresh connection when this one turned out closed or broken; puts are the same the second time and a
   // failed transaction wrote nothing)
   async tx(store, mode, fn) {
-    for (let i = 0; ; i++) {
+    for (let i = 0;; i++) {
       let db = null;
       // (a failed open is not tried again here - connect already did - but its error reads like the others)
-      try { db = await this.wait(); return await this.tx1(db, store, mode, fn); }
-      catch (e) { if (!db || i >= 2 || !(db.gone || this.stale(e))) throw this.nice(e || new Error('存档数据库出错')); this.drop(db); }
+      try {
+        db = await this.wait();
+        return await this.tx1(db, store, mode, fn);
+      } catch (e) {
+        if (!db || i >= 2 || !(db.gone || this.stale(e))) throw this.nice(e || new Error('存档数据库出错'));
+        this.drop(db);
+      }
     }
   },
   tx1(db, store, mode, fn) {
     return new Promise((res, rej) => {
       // (writes: relaxed durability - done once the data is with the system, not after forcing it to disk: a save
       // costs phones less I/O and power; only a power cut right after it could lose that one save)
-      const t = mode === 'readwrite' ? db.transaction(store, mode, { durability: 'relaxed' }) : db.transaction(store, mode), s = t.objectStore(store);
+      const t = mode === 'readwrite' ? db.transaction(store, mode, {
+          durability: 'relaxed'
+        }) : db.transaction(store, mode),
+        s = t.objectStore(store);
       let out, r;
       // (a throw half way - a record that can't be stored - must not leave the puts before it to commit)
-      try { r = fn(s); } catch (e) { try { t.abort(); } catch (e2) { } throw e; }
-      if (r && 'onsuccess' in r) r.onsuccess = () => { out = r.result; };
+      try {
+        r = fn(s);
+      } catch (e) {
+        try {
+          t.abort();
+        } catch (e2) {}
+        throw e;
+      }
+      if (r && 'onsuccess' in r) r.onsuccess = () => {
+        out = r.result;
+      };
       t.oncomplete = () => res(out);
       // (a failed request's error reaches the transaction before the transaction has an error of its own:
       // t.error is still null here, the save was rejected with null - no retry on a lost connection, and
       // saveWorld's "保存失败: " + e.message threw instead of showing anything)
-      t.onerror = (ev) => rej((ev && ev.target && ev.target.error) || t.error || new Error('存档数据库出错'));
+      t.onerror = ev => rej(ev && ev.target && ev.target.error || t.error || new Error('存档数据库出错'));
       // an aborted transaction (the browser closed the database, out of space ...) fires neither of the two
       // above: without this its promise never settled and whatever waited on it (a chunk's saved data, the
       // save on leaving the world) waited for ever
@@ -148,9 +283,7 @@ const DB = {
   },
   async listWorlds() {
     let all;
-    if (this.backend === 'idb') all = await this.tx('worlds', 'readonly', s => s.getAll());
-    else if (this.backend === 'local') all = LS.keys('mcjs:w:').map(k => LS.get(k)).filter(Boolean);
-    else all = [...this.mem.worlds.values()];
+    if (this.backend === 'idb') all = await this.tx('worlds', 'readonly', s => s.getAll());else if (this.backend === 'local') all = LS.keys('mcjs:w:').map(k => LS.get(k)).filter(Boolean);else all = [...this.mem.worlds.values()];
     return (all || []).sort((a, b) => b.lastPlayed - a.lastPlayed);
   },
   async getWorld(id) {
@@ -159,9 +292,59 @@ const DB = {
     return this.mem.worlds.get(id);
   },
   async putWorld(w) {
-    if (this.backend === 'idb') return this.tx('worlds', 'readwrite', s => s.put(w));
-    if (this.backend === 'local') { try { LS.set('mcjs:w:' + w.id, w); } catch (e) { throw this.nice(e); } return; }
+    // (a live object that got into the world's record - a mob, a canvas - made every save fail with a DataCloneError
+    // after its chunks were written: blocks saved, the player's items and position not. It is written without them)
+    if (this.backend === 'idb') {
+      try {
+        return await this.tx('worlds', 'readwrite', s => s.put(w));
+      } catch (e) {
+        if (!e || e.name !== 'DataCloneError') throw e;
+        if (typeof Telemetry !== 'undefined' && Telemetry.count) Telemetry.count('save_clone_fixed');
+        return this.tx('worlds', 'readwrite', s => s.put(this.plain(w)));
+      }
+    }
+    if (this.backend === 'local') {
+      try {
+        LS.set('mcjs:w:' + w.id, w);
+      } catch (e) {
+        throw this.nice(e);
+      }
+      return;
+    }
     this.mem.worlds.set(w.id, w);
+  },
+  // a copy of a record with only what can be stored: plain objects, arrays, maps, sets, typed arrays and plain values
+  // (class instances, functions, DOM objects and loops are left out)
+  plain(v, path = new Set()) {
+    if (v === null || typeof v !== 'object') return typeof v === 'function' || typeof v === 'symbol' ? undefined : v;
+    if (ArrayBuffer.isView(v) || v instanceof ArrayBuffer || v instanceof Date || typeof Blob !== 'undefined' && v instanceof Blob) return v;
+    if (path.has(v)) return undefined;
+    path.add(v);
+    let out;
+    if (Array.isArray(v)) out = v.map(x => this.plain(x, path));else if (v instanceof Map) {
+      out = new Map();
+      for (const [k, x] of v) {
+        const c = this.plain(x, path);
+        if (c !== undefined) out.set(k, c);
+      }
+    } else if (v instanceof Set) {
+      out = new Set();
+      for (const x of v) {
+        const c = this.plain(x, path);
+        if (c !== undefined) out.add(c);
+      }
+    } else {
+      const pr = Object.getPrototypeOf(v);
+      if (pr === null || Object.getPrototypeOf(pr) === null) {
+        out = {};
+        for (const k of Object.keys(v)) {
+          const c = this.plain(v[k], path);
+          if (c !== undefined) out[k] = c;
+        }
+      }
+    }
+    path.delete(v);
+    return out;
   },
   async deleteWorld(id) {
     if (this.backend === 'idb') {
@@ -180,56 +363,94 @@ const DB = {
     if (this.backend === 'idb') {
       // (through tx like every other read: a closed or broken database is opened again / repaired first. A failed
       // read is an error, not "no saved chunks": that made the world come back as fresh terrain, saved over the edits)
-      await this.tx('chunks', 'readonly', (s) => {
+      await this.tx('chunks', 'readonly', s => {
         out.clear();
         const req = s.openCursor(IDBKeyRange.bound(id + ':', id + ':￿'));
         req.onsuccess = () => {
           const c = req.result;
-          if (c) { const [, cx, cz] = c.key.split(':'); out.set(ckey(+cx, +cz), c.value); c.continue(); }
+          if (c) {
+            const [, cx, cz] = c.key.split(':');
+            out.set(ckey(+cx, +cz), c.value);
+            c.continue();
+          }
         };
       });
     } else if (this.backend === 'local') {
       for (const k of LS.keys('mcjs:c:' + id + ':')) {
-        const [, , , cx, cz] = k.split(':'); const v = LS.get(k);
+        const [,,, cx, cz] = k.split(':');
+        const v = LS.get(k);
         if (v) out.set(ckey(+cx, +cz), this.lsChunk(v));
       }
     } else {
-      for (const [k, v] of this.mem.chunks) if (k.startsWith(id + ':')) { const [, cx, cz] = k.split(':'); out.set(ckey(+cx, +cz), v); }
+      for (const [k, v] of this.mem.chunks) if (k.startsWith(id + ':')) {
+        const [, cx, cz] = k.split(':');
+        out.set(ckey(+cx, +cz), v);
+      }
     }
     return out;
   },
   // the keys of a world's saved chunks; the records themselves are read one at a time when their chunk loads
   // (Game.savedReady): an imported world can hold tens of thousands of them
   async chunkKeys(id) {
-    const out = new Set(), add = (k) => { const [, cx, cz] = k.split(':'); out.add(ckey(+cx, +cz)); };
-    if (this.backend === 'idb') { for (const k of (await this.tx('chunks', 'readonly', s => s.getAllKeys(IDBKeyRange.bound(id + ':', id + ':\uffff')))) || []) add(k); }
-    else if (this.backend === 'local') { for (const k of LS.keys('mcjs:c:' + id + ':')) add(k.slice(7)); }
-    else for (const k of this.mem.chunks.keys()) if (k.startsWith(id + ':')) add(k);
+    const out = new Set(),
+      add = k => {
+        const [, cx, cz] = k.split(':');
+        out.add(ckey(+cx, +cz));
+      };
+    if (this.backend === 'idb') {
+      for (const k of (await this.tx('chunks', 'readonly', s => s.getAllKeys(IDBKeyRange.bound(id + ':', id + ':\uffff')))) || []) add(k);
+    } else if (this.backend === 'local') {
+      for (const k of LS.keys('mcjs:c:' + id + ':')) add(k.slice(7));
+    } else for (const k of this.mem.chunks.keys()) if (k.startsWith(id + ':')) add(k);
     return out;
   },
   async getChunk(id, cx, cz) {
     const k = id + ':' + cx + ':' + cz;
     if (this.backend === 'idb') return this.tx('chunks', 'readonly', s => s.get(k));
-    if (this.backend === 'local') { const v = LS.get('mcjs:c:' + k); return v ? this.lsChunk(v) : undefined; }
+    if (this.backend === 'local') {
+      const v = LS.get('mcjs:c:' + k);
+      return v ? this.lsChunk(v) : undefined;
+    }
     return this.mem.chunks.get(k);
   },
   // a chunk record in localStorage is JSON: its waterlogged cells (w) went missing there, so a world saved without
   // IndexedDB lost the water in its stairs, slabs, fences ... on every reload
-  lsChunk(v) { const r = { b: new Uint16Array(v.b), m: new Uint16Array(v.m) }; if (v.w && v.w.length) r.w = new Uint32Array(v.w); return r; },
+  lsChunk(v) {
+    const r = {
+      b: new Uint16Array(v.b),
+      m: new Uint16Array(v.m)
+    };
+    if (v.w && v.w.length) r.w = new Uint32Array(v.w);
+    return r;
+  },
   async putChunks(id, list) {
     if (!list.length) return;
-    if (this.backend === 'idb') return this.tx('chunks', 'readwrite', s => { for (const [cx, cz, v] of list) s.put(v, id + ':' + cx + ':' + cz); });
+    if (this.backend === 'idb') return this.tx('chunks', 'readwrite', s => {
+      for (const [cx, cz, v] of list) s.put(v, id + ':' + cx + ':' + cz);
+    });
     if (this.backend === 'local') {
-      try { for (const [cx, cz, v] of list) LS.set('mcjs:c:' + id + ':' + cx + ':' + cz, v.w && v.w.length ? { b: Array.from(v.b), m: Array.from(v.m), w: Array.from(v.w) } : { b: Array.from(v.b), m: Array.from(v.m) }); }
-      catch (e) { throw this.nice(e); }
+      try {
+        for (const [cx, cz, v] of list) LS.set('mcjs:c:' + id + ':' + cx + ':' + cz, v.w && v.w.length ? {
+          b: Array.from(v.b),
+          m: Array.from(v.m),
+          w: Array.from(v.w)
+        } : {
+          b: Array.from(v.b),
+          m: Array.from(v.m)
+        });
+      } catch (e) {
+        throw this.nice(e);
+      }
       return;
     }
     for (const [cx, cz, v] of list) this.mem.chunks.set(id + ':' + cx + ':' + cz, v);
-  },
+  }
 };
-
 function encodeChunk(ch) {
-  const r = { b: new Uint16Array(rleEncode(ch.flatBlocks())), m: new Uint16Array(rleEncode(ch.flatMeta())) };
+  const r = {
+    b: new Uint16Array(rleEncode(ch.flatBlocks())),
+    m: new Uint16Array(rleEncode(ch.flatMeta()))
+  };
   if (ch.wl && ch.wl.size) r.w = Uint32Array.from(ch.wl); // the waterlogged cells (block indices)
   return r;
 }

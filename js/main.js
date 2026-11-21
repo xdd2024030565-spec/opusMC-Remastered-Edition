@@ -1,122 +1,328 @@
+
 'use strict';
+
 // ---------------------------------------------------------------------------
 // Input binding & bootstrap
 // ---------------------------------------------------------------------------
 function bindInput(g) {
-  const canvas = g.canvas, ui = g.ui;
+  const canvas = g.canvas,
+    ui = g.ui;
   const locked = () => document.pointerLockElement === canvas;
-  window.addEventListener('keydown', (e) => {
+  window.addEventListener('keydown', e => {
     if (document.activeElement === ui.input) return;
     Sound.init();
     const code = e.code;
     if (code === 'Escape' && !e.repeat) g.escHeld = performance.now();
-    if (['Space', 'Tab', 'F1', 'F3', 'F5', 'Slash', 'KeyQ'].includes(code) || (e.ctrlKey && ['KeyS', 'KeyD', 'KeyW', 'KeyA'].includes(code))) e.preventDefault();
+    if (['Space', 'Tab', 'F1', 'F3', 'F5', 'Slash', 'KeyQ'].includes(code) || e.ctrlKey && ['KeyS', 'KeyD', 'KeyW', 'KeyA'].includes(code)) e.preventDefault();
     if (ui.screen) {
       if (ui.key(e)) return;
-      if (code === 'Escape' || (bindingsFor(g, code).includes('inventory') && ui.screen instanceof ContainerScreen)) {
-        if (ui.screen.onEsc) ui.screen.onEsc();
-        else if (g.state === 'play' && !(ui.screen instanceof DeathScreen)) ui.close();
+      if (code === 'Escape' || bindingsFor(g, code).includes('inventory') && ui.screen instanceof ContainerScreen) {
+        if (ui.screen.onEsc) ui.screen.onEsc();else if (g.state === 'play' && !(ui.screen instanceof DeathScreen)) ui.close();
       }
       return;
     }
     if (g.state !== 'play') return;
-    if (e.repeat && !code.startsWith('Digit')) { g.keys[code] = true; return; }
+    if (e.repeat && !code.startsWith('Digit')) {
+      g.keys[code] = true;
+      return;
+    }
     g.keys[code] = true;
-    const p = g.player, now = performance.now();
-    if (code === 'Escape') { ui.open(new PauseScreen(g)); return; }
+    const p = g.player,
+      now = performance.now();
+    if (code === 'Escape') {
+      ui.open(new PauseScreen(g));
+      return;
+    }
     // vanilla F3 combos: F3 toggles the debug screen on release unless used as a modifier
     if (g.keys.F3 && code !== 'F3') {
       g.f3Used = true;
-      if (code === 'KeyH') { g.settings.advTooltips = !g.settings.advTooltips; g.saveSettings(); ui.message('[调试]：高级提示框：' + (g.settings.advTooltips ? '显示' : '隐藏'), '#FFFF55'); return; }
-      if (code === 'KeyN' || code === 'F4') {
-        if (!g.cheats && !g.net) { ui.message('[调试]：无法切换游戏模式；没有权限', '#FF5555'); return; }
-        g.requestMode(code === 'KeyN' ? (g.mode === 'spectator' ? (g.prevMode && g.prevMode !== 'spectator' ? g.prevMode : 'creative') : 'spectator') : MODE_NEXT[g.mode]); return;
+      if (code === 'KeyH') {
+        g.settings.advTooltips = !g.settings.advTooltips;
+        g.saveSettings();
+        ui.message('[调试]：高级提示框：' + (g.settings.advTooltips ? '显示' : '隐藏'), '#FFFF55');
+        return;
       }
-      if (code === 'KeyL') { g.perfReport(); return; }
-      if (code === 'KeyQ') { ui.message('F3 + H = 高级提示框，F3 + N = 旁观模式切换，F3 + F4 = 切换游戏模式，F3 + L = 记录 10 秒性能报告', '#FFFF55'); return; }
+      if (code === 'KeyN' || code === 'F4') {
+        if (!g.cheats && !g.net) {
+          ui.message('[调试]：无法切换游戏模式；没有权限', '#FF5555');
+          return;
+        }
+        g.requestMode(code === 'KeyN' ? g.mode === 'spectator' ? g.prevMode && g.prevMode !== 'spectator' ? g.prevMode : 'creative' : 'spectator' : MODE_NEXT[g.mode]);
+        return;
+      }
+      if (code === 'KeyL') {
+        g.perfReport();
+        return;
+      }
+      if (code === 'KeyQ') {
+        ui.message('F3 + H = 高级提示框，F3 + N = 旁观模式切换，F3 + F4 = 切换游戏模式，F3 + L = 记录 10 秒性能报告', '#FFFF55');
+        return;
+      }
     }
     if (code === 'F3') g.f3Used = false;
     // everything else goes through the key bindings (选项 → 按键控制 → 按键绑定)
-    for (const act of bindingsFor(g, code)) if (pressAction(g, act, e)) { e.preventDefault(); return; }
+    for (const act of bindingsFor(g, code)) if (pressAction(g, act, e)) {
+      e.preventDefault();
+      return;
+    }
   });
-  window.addEventListener('keyup', (e) => {
-    if (e.code === 'F3' && g.keys.F3 && !g.f3Used && !ui.screen && g.state === 'play') { ui.debug = !ui.debug; PerfMon.gpuOn = ui.debug; }
+  window.addEventListener('keyup', e => {
+    if (e.code === 'F3' && g.keys.F3 && !g.f3Used && !ui.screen && g.state === 'play') {
+      ui.debug = !ui.debug;
+      PerfMon.gpuOn = ui.debug;
+    }
     g.keys[e.code] = false;
-    if (e.code === 'Escape') { g.escHeld = 0; if (g.escCapture) { g.escCapture = false; if (g.state === 'play' && !ui.screen) { g.clickToResume = performance.now(); g.capturePointer(); } } }
+    if (e.code === 'Escape') {
+      g.escHeld = 0;
+      if (g.escCapture) {
+        g.escCapture = false;
+        if (g.state === 'play' && !ui.screen) {
+          g.clickToResume = performance.now();
+          g.capturePointer();
+        }
+      }
+    }
     for (const act of bindingsFor(g, e.code)) releaseAction(g, act);
   });
-  const releaseAll = () => { g.keys = {}; g.rawMouse = [false, false, false]; g.mouseBtn = [false, false, false]; g.sprintToggle = false; };
+  const releaseAll = () => {
+    g.keys = {};
+    g.rawMouse = [false, false, false];
+    g.mouseBtn = [false, false, false];
+    g.sprintToggle = false;
+  };
   window.addEventListener('blur', releaseAll);
   document.addEventListener('pointerlockchange', () => {
     // (not when the lock went because the game is now played by touch - see touch.js)
     if (locked()) g.lockFails = 0;
-    if (!locked()) { releaseAll(); if (g.state === 'play' && !ui.screen && !touchOn(g)) ui.open(new PauseScreen(g)); }
+    if (!locked()) {
+      releaseAll();
+      if (g.state === 'play' && !ui.screen && !touchOn(g)) ui.open(new PauseScreen(g));
+    }
   });
   // the browser refuses the mouse lock (some browsers and app web views never give it): played with the mouse free
   // instead of the pause menu coming back each time "back to game" is clicked (players' feedback 2026-10-31, ~10)
-  document.addEventListener('pointerlockerror', () => { g.lockFails = (g.lockFails || 0) + 1; });
+  // (a soft refusal - asked with no click behind it, or again right after the player left the lock: game.js
+  // capturePointer marks the request with lockSoftAt - is not counted: the browser said nothing about itself. This
+  // listener runs before game.js's own, which then finds lockSoftAt cleared)
+  document.addEventListener('pointerlockerror', () => {
+    if (g.lockSoftAt && performance.now() - g.lockSoftAt < 1500) {
+      g.lockSoftAt = 0;
+      return;
+    }
+    g.lockFails = (g.lockFails || 0) + 1;
+  });
   const freeMouse = () => g.lockFails > 0 && !locked() && !touchOn(g);
-  window.addEventListener('mousemove', (e) => {
+  // a button let go where the page never heard it (Edge's mouse gestures take the right button's mouseup): the buttons
+  // the event says are down win - before, use stayed held and blocks went on being placed with nothing pressed
+  const syncButtons = e => {
+    if (typeof e.buttons !== 'number' || !g.rawMouse) return;
+    for (let b = 0; b < 3; b++) if (g.rawMouse[b] && !(e.buttons & [1, 4, 2][b])) {
+      g.rawMouse[b] = false;
+      for (const act of bindingsFor(g, 'Mouse' + b)) releaseAction(g, act);
+    }
+    unlockIfUp();
+  };
+  // a screen opened by a held button (right click on a chest, a villager): the lock is let go once the button is up
+  // (ui.open, g.unlockOnUp). Let go at once, the pointer jumped back with the button down - to Edge a right-button
+  // drag, its mouse gestures closed or left the page ("右键箱子 / 村民闪退", feedback 11-01 to 11-08)
+  const unlockIfUp = () => {
+    if (!g.unlockOnUp || g.rawMouse && (g.rawMouse[0] || g.rawMouse[1] || g.rawMouse[2])) return; // (side buttons aside)
+    g.unlockOnUp = false;
+    if (ui.screen && !ui.screen.keepPointer) g.releasePointer();
+  };
+  // a spike: one event far off the other way to the last (Chrome's lock without raw input as it puts the hidden pointer
+  // back). A fast flick is no spike - every move past 400 was dropped, the view did not follow (feedback 11-01 to 11-08);
+  // with raw input (g.lockRaw) nothing is dropped, as in vanilla
+  let lastMove = [0, 0],
+    lastMoveT = 0;
+  const spike = (v, last) => Math.abs(v) > 400 && Math.abs(last) >= 8 && last * v < 0 && !(g.lockRaw && locked());
+  // the mouse left free (freeMouse): held against an edge of the page the view keeps turning that way - the pointer
+  // cannot go on and movementX stays 0 there ("鼠标到屏幕边缘就转不动", phones / tablets with a mouse, browsers that
+  // refuse the lock; the pointer itself is hidden while playing, ui.draw)
+  let edge = null,
+    edgeT = 0,
+    edgeRaf = 0;
+  const edgeTurn = t => {
+    if (!edge || !freeMouse() || ui.screen || g.state !== 'play') {
+      edge = null;
+      edgeRaf = 0;
+      edgeT = 0;
+      return;
+    }
+    const dt = edgeT ? Math.min(0.1, (t - edgeT) / 1000) : 0;
+    edgeT = t;
+    const p = g.player,
+      st = g.settings,
+      k = (st.sens * 0.006 + 0.0006) * 450 * dt; // (as 450 px a second)
+    p.yaw -= edge[0] * k * (st.invertX ? -1 : 1);
+    p.pitch = clamp(p.pitch - edge[1] * k * (st.invertY ? -1 : 1), -Math.PI / 2 + 0.001, Math.PI / 2 - 0.001);
+    edgeRaf = requestAnimationFrame(edgeTurn);
+  };
+  // (free mouse: the first move back in the window is the whole way it went outside - dropped, the view jumped by it)
+  let reenter = false;
+  document.addEventListener('mouseout', e => {
+    if (!e.relatedTarget) {
+      edge = null;
+      reenter = true;
+    }
+  });
+  window.addEventListener('blur', () => {
+    edge = null;
+    reenter = true;
+  });
+  window.addEventListener('mousemove', e => {
+    syncButtons(e);
     if ((locked() || freeMouse()) && !ui.screen && g.state === 'play') {
-      const p = g.player, st = g.settings, s = st.sens * 0.006 + 0.0006;
-      if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return; // browser glitch spikes
+      const p = g.player,
+        st = g.settings,
+        s = st.sens * 0.006 + 0.0006,
+        now = performance.now(),
+        last = now - lastMoveT < 100 ? lastMove : [0, 0];
+      if (reenter) {
+        reenter = false;
+        if (!locked()) return;
+      }
+      if (spike(e.movementX, last[0]) || spike(e.movementY, last[1])) return;
+      lastMove = [e.movementX, e.movementY];
+      lastMoveT = now;
       p.yaw -= e.movementX * s * (st.invertX ? -1 : 1);
       p.pitch = clamp(p.pitch - e.movementY * s * (st.invertY ? -1 : 1), -Math.PI / 2 + 0.001, Math.PI / 2 - 0.001);
+      if (!locked()) {
+        const m = 2,
+          ex = e.clientX <= m ? -1 : e.clientX >= innerWidth - 1 - m ? 1 : 0,
+          ey = e.clientY <= m ? -1 : e.clientY >= innerHeight - 1 - m ? 1 : 0;
+        edge = ex || ey ? [ex, ey] : null;
+        if (edge && !edgeRaf) edgeRaf = requestAnimationFrame(edgeTurn);
+      } else edge = null;
     } else ui.mouseMove(e);
   });
-  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-  ui.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+  ui.canvas.addEventListener('contextmenu', e => e.preventDefault());
   // (Edge's mouse gestures start from a right-button drag on the page: the right button and its menu kept from it)
-  window.addEventListener('contextmenu', (e) => { if (e.target !== ui.input) e.preventDefault(); }, true);
-  window.addEventListener('mousedown', (e) => { if (e.button === 2 && e.target !== ui.input) e.preventDefault(); }, true);
-  window.addEventListener('mousedown', (e) => {
+  window.addEventListener('contextmenu', e => {
+    if (e.target !== ui.input) e.preventDefault();
+  }, true);
+  window.addEventListener('mousedown', e => {
+    if (e.button === 2 && e.target !== ui.input) e.preventDefault();
+  }, true);
+  // Edge / 360: their mouse gestures (a right-button drag: back, close the tab) are the browser's, past what the page can
+  // stop - the first right click in a world says where they are turned off (the first 3 sessions)
+  const gestureUA = /Edg\/|QIHU|360SE|360EE/i.test(navigator.userAgent || '');
+  let gestureTold = false;
+  const gestureTip = () => {
+    if (!gestureUA || gestureTold) return;
+    gestureTold = true;
+    const n = g.settings.gestureTip || 0;
+    if (n >= 3) return;
+    g.settings.gestureTip = n + 1;
+    g.saveSettings();
+    ui.message('[提示] 浏览器的「鼠标手势」会把按住右键拖动当成后退或关闭网页；用不到的话，可以在浏览器设置里搜索「鼠标手势」关掉', '#FFFF55');
+  };
+  window.addEventListener('mousedown', e => {
     if (e.target === ui.input) return;
     Sound.init();
-    if (ui.screen) { ui.mouseDown(e); return; }
+    syncButtons(e);
+    if (ui.screen) {
+      ui.mouseDown(e);
+      return;
+    }
     if (g.state !== 'play') return;
-    if (!locked()) { g.capturePointer(); if (!freeMouse()) return; }
+    if (!locked()) {
+      g.capturePointer();
+      if (!freeMouse()) return;
+    }
     if (e.button === 1) e.preventDefault();
     (g.rawMouse || (g.rawMouse = [false, false, false]))[e.button] = true;
     for (const act of bindingsFor(g, 'Mouse' + e.button)) pressAction(g, act, e);
+    if (e.button === 2) gestureTip();
   });
-  window.addEventListener('mouseup', (e) => {
-    if (ui.screen) { ui.mouseUp(e); }
+  window.addEventListener('mouseup', e => {
+    if (ui.screen) {
+      ui.mouseUp(e);
+    }
     if (g.rawMouse) g.rawMouse[e.button] = false;
     for (const act of bindingsFor(g, 'Mouse' + e.button)) releaseAction(g, act);
+    unlockIfUp();
   });
-  window.addEventListener('wheel', (e) => {
-    if (ui.screen) { ui.wheelShift = e.shiftKey; ui.wheel(e.deltaY); return; }
+  window.addEventListener('wheel', e => {
+    var _st$scrollSens;
+    if (ui.screen) {
+      ui.wheelShift = e.shiftKey;
+      ui.wheel(e.deltaY);
+      return;
+    }
     if (g.state !== 'play') return;
     // vanilla scroll: wheel sensitivity scales the steps, discrete scrolling counts one step per notch
-    const st = g.settings, k = st.scrollSens ?? 1;
+    const st = g.settings,
+      k = (_st$scrollSens = st.scrollSens) !== null && _st$scrollSens !== void 0 ? _st$scrollSens : 1;
     // a mouse wheel's notch is one step whatever the browser makes of it (100, 300 pixels with Windows' "lines to
     // scroll", 3 lines in Firefox: one notch went 3 slots, players' feedback 2026-10-31); a touchpad's small deltas add up
     const notch = e.deltaMode !== 0 || Math.abs(e.deltaY) >= 50;
     g.scrollAcc = (g.scrollAcc || 0) + (st.discreteScroll || notch ? Math.sign(e.deltaY) * k : e.deltaY / 100 * k);
     const n = Math.trunc(g.scrollAcc);
-    if (n) { g.scrollAcc -= n; const p = g.player; p.inv.sel = mod(p.inv.sel + n, 9); }
-  }, { passive: true });
-  window.addEventListener('beforeunload', (e) => {
-    if (g.state === 'play') { g.saveWorld(true); e.preventDefault(); e.returnValue = ''; }
+    if (n) {
+      g.scrollAcc -= n;
+      const p = g.player;
+      p.inv.sel = mod(p.inv.sel + n, 9);
+    }
+  }, {
+    passive: true
   });
-  document.addEventListener('visibilitychange', () => { if (document.hidden && g.state === 'play') g.saveWorld(true); });
+  window.addEventListener('beforeunload', e => {
+    if (g.state === 'play') {
+      g.saveWorld(true);
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && g.state === 'play') g.saveWorld(true);
+  });
 }
 
 // Player preview for the survival inventory
 Renderer.prototype.playerPreview = function (game, ui, x, y, w, h, opts) {
-  const gl = this.gl, S = Math.max(2, ui.scale), W = w * S, H = h * S;
+  const gl = this.gl,
+    S = Math.max(2, ui.scale),
+    W = w * S,
+    H = h * S;
   // only re-render when the head would turn (it follows the mouse). The picture comes back from the GPU
   // asynchronously: read into a pixel buffer, fenced, and copied out a frame or two later once the fence has
   // passed - a plain readPixels made the CPU wait for the whole frame (the world behind the inventory
   // included) every time the mouse moved
-  const P = game.player, gear = P ? [P.inv.sel, ...[P.inv.held, ...P.inv.slots.slice(36, 41)].map(s => s ? s.id + ':' + (s.dmg || 0) : 0)].join('/') : '';
-  // (the skin, the cape and its frame: the wardrobe's turning preview, skins.js / capes.js)
-  const look = P && typeof Skins !== 'undefined' ? Skins.texOf(game, P) + Skins.modelOf(game, P) + (Capes.of(game, P) || '') + Math.floor(performance.now() / 125) : '';
-  const key = (opts && opts.yaw !== undefined ? 'y' + opts.yaw.toFixed(2) : Math.round(ui.mouse.x) + ',' + Math.round(ui.mouse.y)) + ',' + x + ',' + y + ',' + W + ',' + H + ',' + gear + look;
+  // (a dyed piece's colour too: two leather chestplates swapped differ by it alone - the frame below no longer covers it)
+  const P = game.player,
+    gear = P ? [P.inv.sel, ...[P.inv.held, ...P.inv.slots.slice(36, 41)].map(s => {
+      var _s$color;
+      return s ? s.id + ':' + (s.dmg || 0) + ':' + ((_s$color = s.color) !== null && _s$color !== void 0 ? _s$color : '') : 0;
+    })].join('/') : '';
+  // (the skin, the cape and its frame: the wardrobe's turning preview, skins.js / capes.js. The frame (8 a second) only
+  // for an animated cape or the wardrobe, whose pet moves - and for 1.5 s after what is worn changed, as an armour or
+  // wing texture seen for the first time loads a moment later (emodel.js etex: null until then). Always in the key,
+  // the inventory drew the player again 8 times a second with nothing changed)
+  const cape = P && typeof Capes !== 'undefined' ? Capes.of(game, P) : null,
+    cp = cape && Capes.get(cape),
+    now = performance.now();
+  const look = P && typeof Skins !== 'undefined' ? Skins.texOf(game, P) + Skins.modelOf(game, P) + (cape || '') : '';
+  const worn = x + ',' + y + ',' + W + ',' + H + ',' + gear + look;
+  if (this.pvWorn !== worn) {
+    this.pvWorn = worn;
+    this.pvWornT = now;
+  }
+  // (asked for every frame while its screen is open: a gap means the screen was opened again - drawn again once then,
+  // as what the key leaves out may have changed meanwhile: a crossbow loaded, a hat, a trim, where the compass points.
+  // Without it a reopened inventory showed the last picture until the mouse moved - on phones until a touch, 11-04)
+  if (now - (this.pvAt || -1e9) > 500) this.pvForce = true;
+  this.pvAt = now;
+  // (a held compass / clock turns in the hand - the frame keeps it going as before)
+  const dyn = s => /^(compass|recovery_compass|clock)$/.test(keyOfStack(s) || '');
+  const moving = opts && opts.yaw !== undefined || !!(cp && cp.frames && cp.frames.length > 1) || now - this.pvWornT < 1500 || !!(P && (dyn(P.inv.held) || dyn(P.inv.slots[40])));
+  const key = (opts && opts.yaw !== undefined ? 'y' + opts.yaw.toFixed(2) : Math.round(ui.mouse.x) + ',' + Math.round(ui.mouse.y)) + ',' + worn + (moving ? ',' + Math.floor(now / 125) : '');
   if (this.pv && this.pv.sync && this.pv.W === W && this.pv.H === H) {
     const pv = this.pv;
     if (gl.getSyncParameter(pv.sync, gl.SYNC_STATUS) !== gl.SIGNALED) return pv.cv;
-    gl.deleteSync(pv.sync); pv.sync = null;
+    gl.deleteSync(pv.sync);
+    pv.sync = null;
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pv.pbo);
     gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, pv.px);
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
@@ -124,52 +330,111 @@ Renderer.prototype.playerPreview = function (game, ui, x, y, w, h, opts) {
     pv.ctx.putImageData(pv.img, 0, 0);
     pv.key = pv.pendingKey;
   }
-  if (this.pv && this.pv.key === key) return this.pv.cv;
+  if (this.pv && this.pv.key === key && !this.pvForce) return this.pv.cv;
+  this.pvForce = false;
   if (!this.pv || this.pv.W !== W || this.pv.H !== H) {
     if (this.pv) {
-      gl.deleteFramebuffer(this.pv.fb); gl.deleteTexture(this.pv.tex); gl.deleteRenderbuffer(this.pv.rb);
+      gl.deleteFramebuffer(this.pv.fb);
+      gl.deleteTexture(this.pv.tex);
+      gl.deleteRenderbuffer(this.pv.rb);
       if (this.pv.pbo) gl.deleteBuffer(this.pv.pbo);
       if (this.pv.sync) gl.deleteSync(this.pv.sync);
     }
-    const fb = gl.createFramebuffer(), tex = gl.createTexture(), rb = gl.createRenderbuffer();
-    gl.bindTexture(gl.TEXTURE_2D, tex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    gl.bindRenderbuffer(gl.RENDERBUFFER, rb); gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, W, H);
+    const fb = gl.createFramebuffer(),
+      tex = gl.createTexture(),
+      rb = gl.createRenderbuffer();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, W, H);
     gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
     gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rb);
-    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const cv = document.createElement('canvas');
+    cv.width = W;
+    cv.height = H;
     const pbo = gl.createBuffer();
-    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo); gl.bufferData(gl.PIXEL_PACK_BUFFER, W * H * 4, gl.STREAM_READ); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-    this.pv = { fb, tex, rb, pbo, W, H, cv, ctx: cv.getContext('2d'), px: new Uint8Array(W * H * 4), img: cv.getContext('2d').createImageData(W, H), first: true };
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, pbo);
+    gl.bufferData(gl.PIXEL_PACK_BUFFER, W * H * 4, gl.STREAM_READ);
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    this.pv = {
+      fb,
+      tex,
+      rb,
+      pbo,
+      W,
+      H,
+      cv,
+      ctx: cv.getContext('2d'),
+      px: new Uint8Array(W * H * 4),
+      img: cv.getContext('2d').createImageData(W, H),
+      first: true
+    };
   }
   const pv = this.pv;
   gl.bindFramebuffer(gl.FRAMEBUFFER, pv.fb);
   gl.viewport(0, 0, W, H);
-  gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE);
-  const vp = M4.create(); M4.ortho(vp, -0.7, 0.7, -0.05, 1.95, -5, 5);
-  const mx = (ui.mouse.x - (x + w / 2)) / 40, my = (ui.mouse.y - (y + h * 0.25)) / 40;
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);
+  gl.enable(gl.CULL_FACE);
+  const vp = M4.create();
+  M4.ortho(vp, -0.7, 0.7, -0.05, 1.95, -5, 5);
+  const mx = (ui.mouse.x - (x + w / 2)) / 40,
+    my = (ui.mouse.y - (y + h * 0.25)) / 40;
   // (turned toward the mouse: past the half turn that faces the camera, a positive angle turns the figure to the
   // screen's right; the head's pitch is negative looking down, like the player's own - both were the wrong way
   // round, players said the figure looked away from the pointer)
-  const m = M4.create(); M4.translate(m, 0, 0, 0); M4.rotY(m, opts && opts.yaw !== undefined ? opts.yaw : Math.PI + Math.atan(mx) * 0.7);
+  const m = M4.create();
+  M4.translate(m, 0, 0, 0);
+  M4.rotY(m, opts && opts.yaw !== undefined ? opts.yaw : Math.PI + Math.atan(mx) * 0.7);
   M4.scale(m, 0.9375, 0.9375, 0.9375);
   // lit like vanilla's inventory (full light), not by the world's time of day: the light table and the shaders' sun
   // follow the world, so at dusk or at night the preview went dark. Drawn with the plain entity shader
-  const LT = [1, 1], savedFx = this.fxOn; this.fxOn = false;
-  const env = { day: 1, fogColor: [0, 0, 0], fogNear: 1e8, fogFar: 2e8, nightTint: [1, 1, 1] };
-  const savedCam = this.camPos; this.camPos = [0, 0, 0];
-  const poses = opts && opts.yaw !== undefined ? {} : { head: { ry: Math.atan(mx) * 0.5, rx: -Math.atan(my) * 0.6 } };
+  const LT = [1, 1],
+    savedFx = this.fxOn;
+  this.fxOn = false;
+  const env = {
+    day: 1,
+    fogColor: [0, 0, 0],
+    fogNear: 1e8,
+    fogFar: 2e8,
+    nightTint: [1, 1, 1]
+  };
+  const savedCam = this.camPos;
+  this.camPos = [0, 0, 0];
+  const poses = opts && opts.yaw !== undefined ? {} : {
+    head: {
+      ry: Math.atan(mx) * 0.5,
+      rx: -Math.atan(my) * 0.6
+    }
+  };
   // worn armour, the elytra and the held items too (held items draw with the renderer's projection)
-  const savedVP = this.vp; this.vp = vp;
+  const savedVP = this.vp;
+  this.vp = vp;
   const attach = P && game.heldAttach ? game.heldAttach(P, typeof Skins !== 'undefined' ? Skins.modelOf(game, P) : 'steve', P.inv.held, P.inv.slots[40], LT, env) : null;
   gl.disable(gl.CULL_FACE);
   const pm = P && typeof Skins !== 'undefined' ? Skins.modelOf(game, P) : 'steve';
-  this.drawModel(pm, P && typeof Skins !== 'undefined' ? Skins.texOf(game, P) : 'steve', m, poses, LT, env, { vp, attach, inv: true });
-  if (P && typeof Capes !== 'undefined') Capes.draw(game, P, m, poses, LT, env, { vp, still: true, inv: true });
+  this.drawModel(pm, P && typeof Skins !== 'undefined' ? Skins.texOf(game, P) : 'steve', m, poses, LT, env, {
+    vp,
+    attach,
+    inv: true
+  });
+  if (P && typeof Capes !== 'undefined') Capes.draw(game, P, m, poses, LT, env, {
+    vp,
+    still: true,
+    inv: true
+  });
   gl.enable(gl.CULL_FACE);
-  if (P) { game.drawArmor(P.inv.slots.slice(36, 40), m, poses, LT, env, { vp, inv: true }); if (game.drawWings) game.drawWings(P, m, LT, env, null, vp); }
-  this.vp = savedVP; this.fxOn = savedFx;
+  if (P) {
+    game.drawArmor(P.inv.slots.slice(36, 40), m, poses, LT, env, {
+      vp,
+      inv: true
+    });
+    if (game.drawWings) game.drawWings(P, m, LT, env, null, vp);
+  }
+  this.vp = savedVP;
+  this.fxOn = savedFx;
   this.camPos = savedCam;
   if (pv.first) {
     // the first picture is read at once, so the inventory never opens with an empty space for a frame
@@ -190,17 +455,17 @@ Renderer.prototype.playerPreview = function (game, ui, x, y, w, h, opts) {
   gl.viewport(0, 0, this.canvas.width, this.canvas.height);
   return pv.cv;
 };
-
 window.addEventListener('load', async () => {
-  // opusMC Remastered Edition：进入先从 GitHub 拉取云端存档（本地不留存档），再启动游戏。
+  // opusMC Remastered Edition：进入前先从云端拉取存档（本地不留存档），再启动游戏。
   if (window.CloudGitHub) {
     try { await window.CloudGitHub.load(); }
     catch (e) { console.error('[cloud-github] 载入失败', e); }
   }
   const g = window.game = new Game();
   if (typeof window.__bootProgress === 'function') window.__bootProgress(80, '正在初始化渲染');
-  try { await g.init(); }
-  catch (e) {
+  try {
+    await g.init();
+  } catch (e) {
     console.error(e);
     const d = document.getElementById('err');
     d.style.display = 'block';
