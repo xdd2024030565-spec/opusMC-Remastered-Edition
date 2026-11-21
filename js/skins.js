@@ -94,6 +94,9 @@ const Skins = (() => {
           v = JSON.parse(localStorage.getItem('mcjs-skin-' + id.slice(2).toLowerCase()) || 'null');
         } catch (e) {}
         if (!v || Date.now() - v.at > 86400e3) {
+          // 账号/房间服务已移除：没有可用后端时给出明确提示，而不是抛底层 "本版已无账号服务"
+          if (typeof RoomService === 'undefined' || !RoomService.base())
+            throw new Error('本版不支持正版皮肤查找（账号服务已移除），请用预设皮肤');
           v = await RoomService.api('/api/skin?name=' + encodeURIComponent(id.slice(2)));
           v.at = Date.now();
           try {

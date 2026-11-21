@@ -1,0 +1,21 @@
+{
+  "name": "opusmc-bridge",
+  "version": "1.0.0",
+  "description": "OpusMC Remastered 联机中转：把真实 Minecraft 服务器（TCP）转成网页客户端能连的 WebSocket",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test-local.js"
+  },
+  "dependencies": {
+    "minecraft-data": "^3.119.0",
+    "minecraft-protocol": "^1.68.0",
+    "prismarine-chunk": "^1.41.0",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

@@ -45,11 +45,15 @@ const Multiplayer = {
     const host = location.hostname || 'localhost';
     return scheme + '://' + host + ':8780';
   },
-  // a server record's WebSocket address: the entry's own proxy, else the default
+  // a server record's WebSocket address: the entry's own proxy, else the default.
+  // The MC host/port ride in the query string: the bridge needs them to know which
+  // real server to connect to (the game client's hello only carries name/rd).
   ws(entry) {
-    const base = (entry.proxy || this.defaultProxy()).replace(/\/+$/, '');
-    if (/\/ws$/.test(base)) return base;
-    return base + '/ws';
+    let base = (entry.proxy || this.defaultProxy()).replace(/\/+$/, '');
+    if (!/\/ws$/.test(base)) base += '/ws';
+    const sep = base.indexOf('?') >= 0 ? '&' : '?';
+    return base + sep + 'host=' + encodeURIComponent(entry.ip) +
+      '&port=' + (Number(entry.port) || 25565);
   },
   // the address the entry is for, written the way people write it: host[:port]
   addr(entry) {
@@ -158,7 +162,7 @@ class ServerListScreen extends MenuScreen {
     this.selected = -1;
     this.pinging = false;
     this.page = 0;
-    this.userName = (typeof Account !== 'undefined' && Account.loggedIn && Account.name) || game.settings.netName || 'Steve';
+    this.userName = (typeof Account !== 'undefined' && Account.loggedIn && Account.name) || game.settings.netName || ('Player' + Math.floor(Math.random() * 9000 + 1000));
     this.status = '';
     this.load();
   }
@@ -353,7 +357,12 @@ class ServerListScreen extends MenuScreen {
     }, run));
     this.pinging = false;
     const ok = this.entries.filter(e => e.ping).length;
-    this.status = ok ? `在线 ${ok} / ${this.entries.length}` : '全部无法连接（检查中转地址：' + proxy + '）';
+    // When every server is unreachable on the same-host default bridge, point at the docs:
+    // a missing bridge server is by far the most common cause. No layout change — reuse status.
+    const defaultBridge = !new URLSearchParams(location.search).get('proxy') && !window.MP_PROXY &&
+      /:8780$/.test(proxy);
+    this.status = ok ? `在线 ${ok} / ${this.entries.length}` :
+      (defaultBridge ? '全部无法连接：联机需要运行 bridge 中转（见 README）' : '全部无法连接（检查中转地址：' + proxy + '）');
     this.statusBad = !ok;
     this.savePings();
     if (this.game.ui.screen === this) this.layout();
@@ -477,7 +486,7 @@ class EditServerScreen extends MenuScreen {
     this.ip = entry ? entry.ip || '' : '';
     this.port = entry ? String(entry.port || 25565) : '25565';
     this.proxyAddr = entry ? entry.proxy || '' : '';
-    this.userName = (typeof Account !== 'undefined' && Account.loggedIn && Account.name) || game.settings.netName || 'Steve';
+    this.userName = (typeof Account !== 'undefined' && Account.loggedIn && Account.name) || game.settings.netName || ('Player' + Math.floor(Math.random() * 9000 + 1000));
     this.field = 'ip';
   }
   layout() {
@@ -641,7 +650,7 @@ class DirectConnectScreen extends MenuScreen {
     this.parent = parent;
     this.titleY = 20;
     this.addr = game.settings.netAddr || '';
-    this.userName = name || (typeof Account !== 'undefined' && Account.loggedIn && Account.name) || game.settings.netName || 'Steve';
+    this.userName = name || (typeof Account !== 'undefined' && Account.loggedIn && Account.name) || game.settings.netName || ('Player' + Math.floor(Math.random() * 9000 + 1000));
     this.field = 'addr';
   }
   layout() {
