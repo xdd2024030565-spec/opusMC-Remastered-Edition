@@ -8,7 +8,7 @@
 // Built each time the world is entered (the user 11-13: a fresh map every time, whatever was done to it before); /demo reset builds it all again (every block, chest, sign, frame, the
 // dropped items and the player's inventory), /demo tp goes back to the start. Our own code; the map laid out by hand.
 (function () {
-  if (window.__OFFLINE_MODS) return; // 离线包：停用教程地图玩法（不再自动建图/传送）
+  
   if (typeof Game !== 'function' || !self.FD) return;
   const FD = self.FD;
   // the area (x, z from -R to R), the ground (grass at y 60 in a superflat world), what is built goes from y 61
@@ -496,7 +496,7 @@
   const tk = Game.prototype.tick;
   Game.prototype.tick = function () {
     const r = tk.apply(this, arguments);
-    if (window.__OFFLINE_MODS) return r; // 离线包：不自动建造教程地图
+    
     if (this.state === 'play' && !this.net && this.worldMeta && this.dim === 'overworld' && this.fddemoFor !== this.worldMeta && loaded(this)) {
       this.fddemoFor = this.worldMeta;
       this.worldMeta.fddemoBuilt = true;

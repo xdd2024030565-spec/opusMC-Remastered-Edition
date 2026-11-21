@@ -7,7 +7,7 @@
 // the dropped items and the player's inventory), /demo tp goes back to the start.
 // Our own code; the map is laid out by hand here (no one else's map).
 (function () {
-  if (window.__OFFLINE_MODS) return; // 离线包：停用匠魂教程地图（不再自动建图/传送）
+  
   if (typeof Game !== 'function' || !self.TCON) return;
   const TC = self.TCON,
     M = TC.materials,
@@ -473,7 +473,7 @@
   const tk = Game.prototype.tick;
   Game.prototype.tick = function () {
     const r = tk.apply(this, arguments);
-    if (window.__OFFLINE_MODS) return r; // 离线包：不自动建造教程地图
+    
     if (this.state === 'play' && !this.net && this.worldMeta && this.dim === 'overworld' && this.tcdemoFor !== this.worldMeta && loaded(this)) {
       this.tcdemoFor = this.worldMeta;
       this.worldMeta.tcdemoBuilt = true;
