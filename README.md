@@ -1,8 +1,10 @@
 # opusMC Remastered Edition
 
-> ## 🎮 立即游玩：https://xdd2024030565-spec.github.io/opusMC-Remastered-Edition/
+> ## 🎮 立即游玩（国内推荐，秒开）：https://opusmc-10h3d8c30u.maozi.io/
 >
-> 手机 / 电脑浏览器打开即可。首次进入输入存档密码（见下方），之后自动加载云端存档、自动保存。本仓库是个人学习 / 备份用途的游戏还原版。
+> 备用线路（GitHub Pages）：https://xdd2024030565-spec.github.io/opusMC-Remastered-Edition/
+>
+> 两个地址是同一份代码、同一个云端存档，随便用哪个，进度互通。手机 / 电脑浏览器打开即可。首次进入输入存档密码（见下方），之后自动加载云端存档、自动保存。本仓库是个人学习 / 备份用途的游戏还原版。
 
 网页版 Minecraft（OpusMC / YYMC）的个人还原版，游戏本体完整保留，**存档完全托管在 GitHub**：进入自动加载云端存档，游玩中自动保存，**本地不留任何存档**，刷新 / 换设备进度都不丢。
 
@@ -39,7 +41,8 @@
 
 ## 打开游戏
 
-- 在线（推荐）：<https://xdd2024030565-spec.github.io/opusMC-Remastered-Edition/>
+- 国内（推荐，帽子云 CDN）：<https://opusmc-10h3d8c30u.maozi.io/>
+- 备用（GitHub Pages）：<https://xdd2024030565-spec.github.io/opusMC-Remastered-Edition/>
 - 本地：在本目录起一个静态服务器，例如 `python3 -m http.server 8080`，浏览器访问 `http://localhost:8080/`。
 
 > 注意：需要通过 http(s) 打开（`file://` 下浏览器会拒绝跨域存档 API）。
@@ -50,7 +53,8 @@
 
 ## 管理员：部署与维护
 
-- 站点：GitHub Pages（本仓库 `main` 分支根目录，已在 Settings → Pages 开启）；也可在帽子云导入本仓库做国内加速镜像。
+- 站点：帽子云（`opusmc-10h3d8c30u.maozi.io`，导入本仓库 `main` 分支，国内 CDN 加速，推送自动重建）+ GitHub Pages（`xdd2024030565-spec.github.io/opusMC-Remastered-Edition/`，备用）。两者同一份代码、同一云端存档。
+- 帽子云保存密码后不需要重复配置：GitHub 仓库授权后推送即自动部署。
 - 存档代理：Cloudflare Worker `opusmc-save`，脚本 `worker-live.js`（仅管理员本地保存，含 GH token 与密码明文，**不要提交到本仓库**），通过 CF API 部署并绑定路由 `yongjiu.ccwu.cc/opusmc-save/*`。
 - 更新密码 / 轮换 token：重新部署 Worker（改 `worker-live.js` 里的 `SAVE_PASSWORD` / `GITHUB_TOKEN` 常量），前端无需改动。
 - GitHub token 最小权限：Fine-grained token，仅授权本仓库 **Contents: Read and write**；会定期轮换。
