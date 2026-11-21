@@ -176,9 +176,9 @@ class ServerListScreen extends MenuScreen {
   // the row height and how many fit: vanilla's list is a scrolling box between the title and the buttons
   metrics() {
     const u = this.game.ui;
-    const listTop = 32,
+    const rowH = 36,
+      listTop = 32,
       listBottom = Math.max(listTop + rowH, u.h - 84); // 三行按钮在下方，留 6px 间距
-    const rowH = 36;
     return {
       listTop,
       listBottom,
