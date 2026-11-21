@@ -427,6 +427,9 @@ class ServerListScreen extends MenuScreen {
     Font.draw(c, '当前账号', this.acctLabel.x, this.acctLabel.y - 9, '#808080');
     ui.nine('text_field', this.acctLabel.x, this.acctLabel.y, this.acctLabel.w, this.acctLabel.h, 1);
     Font.draw(c, fitText(an + ' ▼', this.acctLabel.w - 8), this.acctLabel.x + 4, this.acctLabel.y + 5, '#E0E0E0');
+    // the "离线账号" button at the top-right (drawn as a real button so it is visible & clickable)
+    const b = this.acctBtn;
+    ui.button({ x: b.x, y: b.y, w: b.w, h: b.h, label: '离线账号', gold: true });
     // the list box
     const x0 = cx - m.boxW / 2,
       y0 = m.listTop,

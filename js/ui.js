@@ -2985,6 +2985,14 @@ class MenuScreen {
   mouseUp() {
     this.dragging = null;
   }
+  // default back(): return to the parent screen if there is one, else the title screen.
+  // subclasses override this; this base makes a safe default so buttons that call this.back()
+  // never throw "back is not a function" (which would silently kill the click handler).
+  back() {
+    this.game.ui.hideInput();
+    if (this.parent) this.game.ui.open(this.parent);
+    else this.game.ui.open(new TitleScreen(this.game));
+  }
   key(ui, ev) {
     if (ev.key === 'Escape' && this.onEsc) {
       this.onEsc();
