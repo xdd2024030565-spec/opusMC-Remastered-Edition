@@ -68,6 +68,9 @@ const HOST = cfg('HOST', '0.0.0.0');
 // 允许连的目标服务器（逗号分隔）；留空 = 不限制（本机自用；放到公网请务必填）
 const ALLOW_HOSTS = String(cfg('ALLOW_HOSTS', ''))
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+// '*' / 'all' / 'any' 表示允许任意目标（留空也表示不限）
+const allowAnyHost = ALLOW_HOSTS.length === 0 || ALLOW_HOSTS.some(h => h === '*' || h === 'all' || h === 'any');
+const hostAllowed = h => allowAnyHost || ALLOW_HOSTS.includes(String(h).toLowerCase());
 // 默认连哪个 MC 版本：不填就问服务器（ping），以服务器为准
 const DEFAULT_VERSION = cfg('MC_VERSION', '');
 const MAX_CLIENTS = +(cfg('MAX_CLIENTS', 32));
@@ -137,7 +140,7 @@ class Session {
 
   // ---- 连到真实服务器 ------------------------------------------------------
   async connect(host, port) {
-    if (ALLOW_HOSTS.length && !ALLOW_HOSTS.includes(String(host).toLowerCase())) {
+    if (!hostAllowed(host)) {
       return this.fail('这个中转不允许连接 ' + host + '（管理员可设 ALLOW_HOSTS）');
     }
     LOG('connect', host + ':' + port, 'as', this.name);
@@ -607,7 +610,7 @@ const server = http.createServer((req, res) => {
       online: true,
       clients: live,
       maxClients: MAX_CLIENTS,
-      allowHosts: ALLOW_HOSTS.length ? ALLOW_HOSTS : '*'
+      allowHosts: allowAnyHost ? '*' : ALLOW_HOSTS
     }));
     return;
   }
@@ -639,7 +642,7 @@ wss.on('connection', (ws, req) => {
 
     // 服务器列表的 ping：{t:'ping', host, port}
     if (m.t === 'ping') {
-      if (ALLOW_HOSTS.length && !ALLOW_HOSTS.includes(String(m.host).toLowerCase())) {
+      if (!hostAllowed(m.host)) {
         ws.send(JSON.stringify({ t: 'error', msg: '不允许连接 ' + m.host }));
         return;
       }
