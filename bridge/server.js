@@ -427,12 +427,18 @@ class Session {
         case 'tpok':
           break;
         case 'tick': {
-          // 客户端权威移动：把它的位置写给服务器
+          // 客户端权威移动：把它的位置写给服务器。
+          // 1.20.2+ 的 position_look 末字段是 flags(MovementFlags u8：bit0=onGround,bit1=横向碰撞)，
+          // 1.20.1 及以前是 onGround(bool)。两个都传：协议只会读自己声明的字段，多余的忽略。
+          // 只传 onGround 会让新版本的 flags=undefined → 序列化抛 "reading '_value'" → 玩家一动就断线。
           const p = m.pos || [];
+          const onGround = !!p[5];
+          const flags = (onGround ? 1 : 0) | (p[6] ? 2 : 0);
           try {
             c.write('position_look', {
               x: p[0], y: p[1], z: p[2],
-              yaw: p[3], pitch: p[4], onGround: !!p[5]
+              yaw: p[3], pitch: p[4],
+              onGround, flags
             });
           } catch (e) {}
           break;
